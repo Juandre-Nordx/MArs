@@ -7,6 +7,8 @@ import {
   generateTerrain,
   infrastructureDefinitions,
   adjacent,
+  cells,
+  connectionTiles,
   isUsable,
   port,
   routeBetween,
@@ -37,6 +39,8 @@ type Props = {
   buildingPreviewValid: boolean;
   onRoute: (tiles: Tile[]) => void;
   onCancel: () => void;
+  selectedResidentId: string | null;
+  onResidentSelect: (id: string) => void;
   onSelect: (tile: Tile) => void;
   onHover: (tile: Tile | null) => void;
   onTouchdown: () => void;
@@ -89,6 +93,7 @@ export function World(props: Props) {
         let startX = 0;
         let startY = 0;
         let moved = false;
+        let pressedResident: string | null = null;
         let route: Tile[] | null = null;
         const tileAt = (p: Phaser.Input.Pointer): Tile | null => {
           const point = camera.getWorldPoint(p.x, p.y);
@@ -101,6 +106,7 @@ export function World(props: Props) {
             : tile;
         };
         this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+          pressedResident = null;
           if (p.rightButtonDown()) {
             route = null;
             latest.current.onCancel();
@@ -111,6 +117,13 @@ export function World(props: Props) {
             route = tile ? [tile] : [];
             latest.current.onRoute(route);
             return;
+          }
+          if (
+            !latest.current.construction &&
+            !latest.current.infrastructureTool
+          ) {
+            const point = camera.getWorldPoint(p.x, p.y);
+            pressedResident = this.actors.pickResident(point.x, point.y);
           }
           startX = p.x;
           startY = p.y;
@@ -149,6 +162,24 @@ export function World(props: Props) {
             return;
           }
           if (moved) return;
+          if (
+            !latest.current.construction &&
+            !latest.current.infrastructureTool
+          ) {
+            const point = camera.getWorldPoint(p.x, p.y);
+            const citizen =
+              pressedResident &&
+              latest.current.colony?.phase === 'active' &&
+              latest.current.colony.residents.some(
+                (r) => r.id === pressedResident,
+              )
+                ? pressedResident
+                : this.actors.pickResident(point.x, point.y);
+            if (citizen) {
+              latest.current.onResidentSelect(citizen);
+              return;
+            }
+          }
           const tile = tileAt(p);
           if (tile) latest.current.onSelect(tile);
         });
@@ -280,9 +311,15 @@ export function World(props: Props) {
             if (live.has(segmentId(segment.type, tile))) mask |= 1 << i;
           if (isUsable(segment))
             for (const building of colony.buildings) {
-              const endpoint = port(building, segment.type);
-              if (endpoint?.x === segment.x && endpoint.y === segment.y)
-                mask |= 4; // North-facing port terminates to the south.
+              if (
+                connectionTiles(building, segment.type).some(
+                  (t) => t.x === segment.x && t.y === segment.y,
+                )
+              ) {
+                const footprintKeys = new Set(cells(building).map(tileKey));
+                for (const [index, neighbor] of adjacent(segment).entries())
+                  if (footprintKeys.has(tileKey(neighbor))) mask |= 1 << index;
+              }
             }
           const image = this.add
             .image(p.x, p.y, `mars-infra-${segment.type}-${mask}`)
@@ -373,7 +410,7 @@ export function World(props: Props) {
           this.infrastructureSignature = infrastructureSignature;
           this.drawInfrastructure(colony, view, selected);
         }
-        this.actors.update(colony, delta);
+        this.actors.update(colony, delta, latest.current.selectedResidentId);
         this.ship.clear();
         if (colony?.phase === 'landing') {
           const progress = Math.min(1, (time - this.landingStarted) / 4500);
@@ -453,14 +490,29 @@ export function World(props: Props) {
             for (const [index, type] of (
               ['water', 'oxygen', 'power'] as const
             ).entries()) {
-              const tile = port(selectedBuilding, type);
-              if (!tile) continue;
-              const p = tileToWorld(tile.x, tile.y);
-              this.overlay
-                .fillStyle(infrastructureDefinitions[type].color)
-                .fillCircle(p.x + (index - 1) * 7, p.y, 3)
-                .lineStyle(1, 0x101820)
-                .strokeCircle(p.x + (index - 1) * 7, p.y, 3);
+              const contacts =
+                type === 'water'
+                  ? connectionTiles(selectedBuilding, type)
+                  : [port(selectedBuilding, type)].filter(
+                      (t): t is Tile => !!t,
+                    );
+              const connected = contacts.filter((t) =>
+                colony.infrastructure.some(
+                  (s) =>
+                    s.type === type &&
+                    s.x === t.x &&
+                    s.y === t.y &&
+                    isUsable(s),
+                ),
+              );
+              for (const tile of connected.length ? connected : contacts) {
+                const p = tileToWorld(tile.x, tile.y);
+                this.overlay
+                  .fillStyle(infrastructureDefinitions[type].color)
+                  .fillCircle(p.x + (index - 1) * 7, p.y, 3)
+                  .lineStyle(1, 0x101820)
+                  .strokeCircle(p.x + (index - 1) * 7, p.y, 3);
+              }
             }
         }
       }

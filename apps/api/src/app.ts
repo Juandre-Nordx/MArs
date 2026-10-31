@@ -13,7 +13,7 @@ export function createApp(database?: PrismaClient) {
   app.get('/api/health', async () => ({
     status: 'ok',
     stage: 2,
-    version: '0.2.2',
+    version: '0.2.2.1',
   }));
   app.get('/api/ready', async (_request, reply) => {
     try {

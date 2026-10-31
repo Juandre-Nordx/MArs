@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import {
   buildInfrastructure,
+  connectionTiles,
+  isUsable,
   infrastructureDefinitions,
   infrastructureTypeSchema,
   networkFor,
@@ -61,7 +63,19 @@ export function NetworkInspector({
         </label>
       )}
       {infrastructureTypeSchema.options.map((type) => {
-        const endpoint = building ? port(building, type) : tile;
+        const endpoint = building
+          ? type === 'water'
+            ? (connectionTiles(building, type).find((t) =>
+                colony.infrastructure.some(
+                  (s) =>
+                    s.type === type &&
+                    s.x === t.x &&
+                    s.y === t.y &&
+                    isUsable(s),
+                ),
+              ) ?? port(building, type))
+            : port(building, type)
+          : tile;
         if (!endpoint) return null;
         const network = building
           ? networkFor(colony.networks, building.id, type)
@@ -92,7 +106,9 @@ export function NetworkInspector({
             </p>
             {building && (
               <small>
-                Port: {endpoint.x}, {endpoint.y} · north side
+                {type === 'water' ? 'Automatic contact' : 'Port'}: {endpoint.x},{' '}
+                {endpoint.y} ·{' '}
+                {type === 'water' ? 'any directly adjacent side' : 'north side'}
               </small>
             )}
             {network && (

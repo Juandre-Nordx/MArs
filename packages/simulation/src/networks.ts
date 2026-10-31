@@ -114,6 +114,34 @@ export function port(
   const offset = buildingDefinitions[building.type].ports[type];
   return offset ? { x: building.x + offset.x, y: building.y + offset.y } : null;
 }
+// Water manifolds accept any cardinally adjacent pipe; other utilities retain explicit ports.
+export function connectionTiles(
+  building: NetworkBuilding,
+  type: InfrastructureType,
+): Tile[] {
+  if (type !== 'water' && type !== 'road') {
+    const tile = port(building, type);
+    return tile ? [tile] : [];
+  }
+  if (type === 'water' && !buildingDefinitions[building.type].ports.water)
+    return [];
+  const footprint = new Set(cells(building).map(tileKey));
+  return [
+    ...new Map(
+      cells(building)
+        .flatMap(adjacent)
+        .filter(
+          (t) =>
+            t.x >= 0 &&
+            t.y >= 0 &&
+            t.x < WORLD_SIZE &&
+            t.y < WORLD_SIZE &&
+            !footprint.has(tileKey(t)),
+        )
+        .map((t) => [tileKey(t), t]),
+    ).values(),
+  ];
+}
 export const isUsable = (value: { health: number; enabled: boolean }) =>
   value.health > 0 && value.enabled;
 export function rebuildNetworks(state: NetworkState): Network[] {
@@ -123,6 +151,19 @@ export function rebuildNetworks(state: NetworkState): Network[] {
       .filter((s) => s.type === type && isUsable(s))
       .sort((a, b) => a.y - b.y || a.x - b.x);
     const byTile = new Map(segments.map((s) => [tileKey(s), s]));
+    const manifolds = new Map<string, Set<string>>();
+    if (type === 'water')
+      for (const building of state.buildings) {
+        const contacts = connectionTiles(building, type)
+          .map((t) => byTile.get(tileKey(t)))
+          .filter((segment): segment is Segment => !!segment);
+        for (const contact of contacts) {
+          const peers = manifolds.get(contact.id) ?? new Set<string>();
+          for (const other of contacts) peers.add(other.id);
+          manifolds.set(contact.id, peers);
+        }
+      }
+    const byId = new Map(segments.map((segment) => [segment.id, segment]));
     const seen = new Set<string>();
     for (const segment of segments) {
       if (seen.has(segment.id)) continue;
@@ -132,6 +173,13 @@ export function rebuildNetworks(state: NetworkState): Network[] {
       for (let i = 0; i < queue.length; i++) {
         const cell = queue[i]!;
         group.push(cell);
+        for (const id of manifolds.get(cell.id) ?? []) {
+          const peer = byId.get(id)!;
+          if (!seen.has(id)) {
+            seen.add(id);
+            queue.push(peer);
+          }
+        }
         for (const tile of adjacent(cell)) {
           const next = byTile.get(tileKey(tile));
           if (next && !seen.has(next.id)) {
@@ -147,8 +195,9 @@ export function rebuildNetworks(state: NetworkState): Network[] {
             return cells(b).some((t) =>
               adjacent(t).some((n) => keys.has(tileKey(n))),
             );
-          const tile = port(b, type);
-          return tile && keys.has(tileKey(tile));
+          return connectionTiles(b, type).some((tile) =>
+            keys.has(tileKey(tile)),
+          );
         })
         .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
       const resource = type === 'road' ? null : utilityResource[type];

@@ -188,7 +188,11 @@ describe('buggy immigration', () => {
     void _r;
     void _n;
     void _i;
-    const migrated = loadSave({ ...old, schemaVersion: 3 });
+    const migrated = loadSave({
+      ...old,
+      schemaVersion: 3,
+      networkRulesVersion: 1,
+    });
     expect(migrated.inventory).toEqual(s.inventory);
     expect(migrated.buildings).toEqual(s.buildings);
     expect(migrated.population).toBe(10);
