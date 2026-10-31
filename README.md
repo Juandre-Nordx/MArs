@@ -1,22 +1,25 @@
-# MARS: FIRST COLONY — Stage 1
+# MARS: FIRST COLONY
 
-An original browser-based isometric Mars colony prototype. TypeScript, Phaser, React, Tailwind, Vite, Fastify, Prisma and PostgreSQL, organized with npm workspaces.
+An original browser-based isometric Mars colony prototype. Stage 2 extends the existing Stage 1 code; Phaser projection/camera controls, React/Vite, Fastify, npm workspaces and Railway configuration are preserved.
 
-## Status and scope
+## Playable Stage 2
 
-Stage 1 source builds successfully. All 10 unit tests, the Chromium browser smoke test, lint and formatting checks pass. Full database integration and Docker verification remain **blocked** by the network policy denying Prisma engine downloads from `binaries.prisma.sh`. The initial checkout had no commits or source files. The referenced GDD and Technical Specification were not supplied, so this implementation follows the Stage 1 request only and requires reconciliation with those documents before acceptance. Stage 2 has not begun.
+- Seeded dust, sand and basalt terrain with procedural rocks/boulders/ripples. Decoration never blocks placement.
+- Automatic Starship descent, exhaust/dust, camera centering and a skip button. The simulation waits for touchdown; deployment is idempotent.
+- One Starship command centre, exactly ten houses and eight support facilities: oxygen generator/tank, water recycler/tank, hydroponic farm, solar array, battery and warehouse. Nineteen total starter buildings, with unique IDs and collision-free, accessible footprints.
+- Ten colonists, input-funded oxygen/water/food production, population consumption, day/night solar power, finite battery charge/discharge, storage limits, operational statuses and reserve alerts.
+- Pause, 1×, 2× and 4× fixed-step simulation. HUD values come from colony state and the last completed tick.
+- Building inspection, footprint selection, roster, enable/disable controls and paid construction with valid/invalid footprint previews. Mining and industry remain locked.
+- Explicit browser Save/Load with strict version 2 validation and a version 1 migration. Cloud saves and login issuance are still unavailable.
 
-Implemented source: 20×20 placeholder isometric terrain; drag pan, scroll zoom and tile selection; React mission panel; API-backed new-game initialization; typed, schema-validated version 1 colony state; a deterministic 1-second fixed-step simulation clock; explicit landing cargo; resource transfer and recipe validation primitives; Fastify health/readiness routes; bearer-session verification scaffolding; Prisma users/sessions/versioned-save tables and an initial migration. Rendering, UI and pure simulation live separately.
-
-No construction, production loop, survival consumption, research, contracts, login/token issuance or cloud-save API is operational. Data catalogs for later recipes and contracts are intentionally empty. The landing cargo is scenario input, not free production. The seed is stored for future world generation; terrain currently uses a fixed pattern. Simulation state is in memory and resets on reload. Unknown save schema versions are rejected; no migration between save versions exists yet.
+See [Stage 2 design, validation and limitations](docs/STAGE2.md) and [Railway deployment](docs/RAILWAY.md). Stage 3 has not started.
 
 ## Exact local startup
 
-Prerequisites: Node.js 22 or newer, npm 10 or newer, Docker with Compose. Run all commands from the repository root.
+Prerequisites: Node.js 22+, npm 10+, Docker with Compose. Run from the repository root.
 
 ```sh
 cp .env.example .env
-# Export local example configuration to the API process. Never commit .env.
 set -a
 . ./.env
 set +a
@@ -28,50 +31,56 @@ npm run build
 npm run dev
 ```
 
-Open the Vite server on port 5173 in your local browser; it proxies `/api` to port 3001. Click **New game**. The API does not require a database for new games, but readiness and session verification do. Prisma CLI reads the exported DATABASE_URL; the API intentionally does not auto-load `.env`.
+Vite serves the web application on port 5173 and proxies `/api` to Fastify on port 3001. Click **New game**, watch or skip the landing, select a building and try the toolbar. A new game replaces unsaved progress after confirmation. **Save** stores one slot in this browser; **Load** validates before replacing current state. No automatic or cloud save is implied.
 
-The dependency lockfile is included. Prisma generation requires HTTPS access to `binaries.prisma.sh` with checksum and TLS verification enabled. In this cloud environment that domain addition was saved to the environment configuration draft; review/save and publish it in environment settings, then retry generation and migration. npm installation required sandbox network access; it succeeded without changing proxy or TLS settings.
+For gameplay development without database integration, `npm ci`, `npm run build`, `npm run dev` is sufficient. New-game creation, health and local browser saves do not access PostgreSQL. Prisma-backed readiness and session verification require a generated client and PostgreSQL. Prisma CLI needs `DATABASE_URL` exported as above; the server does not auto-load `.env`.
+
+In this managed environment, dependencies installed successfully using the configured proxy with sandbox network access. Prisma engine downloads from `binaries.prisma.sh` still return HTTP 403; checksum/TLS verification remains enabled. The earlier domain addition is saved in the environment draft but is not applied to this runtime. Review/save and publish the configuration in environment settings before retrying database setup. No live Railway credentials or database URL were provided here.
 
 ## Verification
 
 ```sh
-npm run db:generate
 npm run build
 npm test
 npm run lint
-npm run format
 npm run format:check
 npx playwright install --with-deps chromium
 npm run test:e2e
-curl --fail http://127.0.0.1:3001/api/health
-curl --fail http://127.0.0.1:3001/api/ready
 ```
 
-Stop `npm run dev` before Playwright: its configuration owns its development servers. Unit tests cover clock partition determinism, tick/resource invariants, save-version rejection, inventory isolation, atomic transfers, input-funded recipes, projection round trips, new-game request validation and unauthenticated session rejection. The browser smoke test covers new game, clock progress, canvas and tile selection, and exercises pan/zoom. All 10 unit tests and the Chromium smoke test passed in this environment, including rendered canvas changes after both zoom and pan. The compiled production API also served web assets, process health and new-game responses successfully; database readiness correctly returned 503 while Prisma was unavailable. Build, lint and formatting checks also passed. For an installed system Chromium, run `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm run test:e2e`; otherwise install the Playwright browser as above. The SQL migration was applied directly to PostgreSQL 16 successfully and the resulting tables inspected, then the test tables were removed. `prisma migrate deploy`, Prisma-backed readiness/session queries and the Docker application build remain unverified because Prisma engine downloads return HTTP 403.
-
-## Docker
+Stop an existing development server before Playwright; its configuration owns the servers. With system Chromium available, use:
 
 ```sh
-docker compose up --build
-# In another terminal:
-curl --fail http://127.0.0.1:3001/api/ready
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm run test:e2e
 ```
 
-The application serves built web assets and API from port 3001. Compose persists PostgreSQL in `mars-db`. `docker compose down` retains this volume. The example database credentials are for local development only. Docker application image build and Prisma migration execution remain unverified. Direct migration SQL execution passed. Railway setup is in [docs/RAILWAY.md](docs/RAILWAY.md).
+Current validation: production workspace build, 30 Vitest tests, four Chromium browser tests, lint and formatting passed. Coverage includes seeded maps, exact starter counts/accessibility, idempotent deployment/load, production/consumption accounting, power/worker starvation, capacity limits over 1,500 ticks, clock determinism/speeds, save migration, footprint selection, paid construction and the original economic/camera checks. Laptop layouts were inspected at 1366×768, 1280×720 and 1024×768 without horizontal overflow.
+
+For database/container verification when access is available:
+
+```sh
+npm run db:generate
+npm run db:migrate
+curl --fail http://127.0.0.1:3001/api/ready
+docker compose up --build
+```
+
+Stage 1 migration SQL was independently applied successfully to PostgreSQL 16. Prisma-managed migration/client integration and the full Docker application image remain unverified here due to the engine download restriction. Stage 2 changes no database tables or deployment settings. Vite reports a large Phaser bundle warning; it does not fail the build.
 
 ## Architecture
 
-- `apps/web`: React UI and Phaser lifecycle; isometric projection helpers. Phaser never mutates simulation state.
-- `apps/api`: Fastify routes and session verification; Prisma schema/migrations. Session tokens are stored only as SHA-256 hashes; no insecure development login bypass exists.
-- `packages/simulation`: pure typed state, schema version boundary, fixed-step clock, catalogs and inventory operations; no browser or database imports.
-- `tests/unit`, `tests/e2e`: Vitest and Playwright checks.
+- `packages/simulation/src/catalog.ts`: shared building/resource definitions, costs, recipes, storage and rates.
+- `packages/simulation/src/terrain.ts`: deterministic seed hashing and decorative map generation.
+- `packages/simulation/src/colony.ts`: validated state, deployment, footprints/access, commands, simulation clock and save migration.
+- `packages/simulation/src/inventory.ts`: preserved Stage 1 pure inventory/recipe helpers.
+- `apps/web/src/World.tsx`: Phaser terrain, placeholder buildings, landing animation and camera; it never edits colony state.
+- `apps/web/src/main.tsx`: React HUD, construction/inspection and clock adapter; every gameplay mutation calls simulation functions.
+- `apps/api`: compatible Fastify endpoints and the original Prisma schema/migration. `/api/new-game` now returns schema version 2 and `/api/health` identifies Stage 2.
 
-The clock accepts elapsed time and computes whole fixed steps plus a retained remainder. Stage 1 steps change only tick count, so advancement is batched equivalently; add per-tick evaluation when later systems introduce time-dependent events. Wall-clock reads are confined to the UI adapter. Save validation is strict. Inputless recipes, negative inventories and inventory overdrafts are rejected before returning new state.
+## Docker and Railway
 
-## Remaining stages (proposed, pending the design documents)
+```sh
+docker compose up --build
+```
 
-1. Finish Stage 1 validation after the Prisma domain is allowed: generate client, apply migration through Prisma, verify database readiness and session queries, and run the Docker smoke test. Reconcile the missing design documents.
-2. Stage 2: reconcile authoritative specs; implement tested placement, building costs and data-driven production with explicit inputs.
-3. Later: survival, power/logistics, economy/contracts, progression, real authentication and versioned persistent cloud saves, artwork/audio, balancing and deployment hardening. Exact staging awaits the GDD and Technical Specification.
-
-Do not start Stage 2 until Stage 1 passes its required checks.
+The compiled app and API share port 3001 in Docker. Compose retains PostgreSQL in `mars-db`; example credentials are local-development values only. Railway continues to use the existing Dockerfile, `$PORT`, `WEB_ROOT` and `/api/ready` health check. See [deployment steps](docs/RAILWAY.md). No live service was deployed or modified during this work.
