@@ -10,6 +10,7 @@ test('new colony, fixed clock, canvas and tile selection', async ({ page }) => {
   await expect(
     page.getByRole('heading', { name: 'First Colony', exact: true }),
   ).toBeVisible();
+  await page.getByRole('button', { name: 'Skip landing' }).click();
   await expect(page.getByTestId('tick')).not.toHaveText('Sol clock: 0 ticks');
   const canvas = page.locator('canvas');
   await expect(canvas).toBeVisible();

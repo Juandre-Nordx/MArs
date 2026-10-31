@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   advance,
+  deployColony,
   applyRecipe,
   landingCargo,
   loadSave,
@@ -10,7 +11,7 @@ import {
 } from '../../packages/simulation/src/index.js';
 describe('deterministic simulation', () => {
   it('produces identical state for identical elapsed time split across frames', () => {
-    const initial = { colony: newGame(42), remainderMs: 0 };
+    const initial = { colony: deployColony(newGame(42)), remainderMs: 0 };
     let split = initial;
     for (const elapsed of [16, 984, 2250, 750, 500])
       split = advance(split, elapsed);
@@ -18,12 +19,13 @@ describe('deterministic simulation', () => {
     expect(split.colony.tick).toBe(4);
     expect(split.remainderMs).toBe(500);
   });
-  it('advances one fixed tick without modifying resources or its input', () => {
+  it('holds resources before landing and advances an immutable deployed state', () => {
     const state = newGame();
-    const next = step(state);
+    const next = step(deployColony(state));
     expect(next.tick).toBe(1);
     expect(state.tick).toBe(0);
-    expect(next.inventory).toEqual(landingCargo);
+    expect(state.inventory).toEqual(landingCargo);
+    expect(next.inventory.water).toBeLessThan(state.inventory.water);
     expect(
       advance({ colony: state, remainderMs: 0 }, 86400000).colony.inventory,
     ).toEqual(landingCargo);
@@ -38,7 +40,7 @@ describe('deterministic simulation', () => {
     expect(() =>
       advance({ colony: newGame(), remainderMs: 0 }, Infinity),
     ).toThrow();
-    expect(() => loadSave({ ...newGame(), schemaVersion: 2 })).toThrow();
+    expect(() => loadSave({ ...newGame(), schemaVersion: 3 })).toThrow();
     expect(loadSave(JSON.parse(JSON.stringify(newGame())))).toEqual(newGame());
   });
 });
