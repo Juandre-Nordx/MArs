@@ -140,7 +140,7 @@ describe('automatic water contacts', () => {
     const s = active(),
       old = { ...s, networkRulesVersion: 1 };
     const next = loadSave(JSON.parse(JSON.stringify(old)));
-    expect(next.networkRulesVersion).toBe(2);
+    expect(next.networkRulesVersion).toBe(3);
     expect(next.inventory).toEqual(s.inventory);
     expect(next.infrastructure).toEqual(s.infrastructure);
     expect(next.residents).toEqual(s.residents);

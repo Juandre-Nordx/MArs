@@ -64,7 +64,7 @@ export function NetworkInspector({
       )}
       {infrastructureTypeSchema.options.map((type) => {
         const endpoint = building
-          ? type === 'water'
+          ? type !== 'power'
             ? (connectionTiles(building, type).find((t) =>
                 colony.infrastructure.some(
                   (s) =>
@@ -78,7 +78,13 @@ export function NetworkInspector({
           : tile;
         if (!endpoint) return null;
         const network = building
-          ? networkFor(colony.networks, building.id, type)
+          ? type === 'road'
+            ? colony.networks.find(
+                (n) =>
+                  n.type === type &&
+                  n.segments.includes(segmentId(type, endpoint)),
+              )
+            : networkFor(colony.networks, building.id, type)
           : colony.networks.find(
               (n) =>
                 n.type === type &&
@@ -106,9 +112,9 @@ export function NetworkInspector({
             </p>
             {building && (
               <small>
-                {type === 'water' ? 'Automatic contact' : 'Port'}: {endpoint.x},{' '}
+                {type !== 'power' ? 'Automatic contact' : 'Port'}: {endpoint.x},{' '}
                 {endpoint.y} ·{' '}
-                {type === 'water' ? 'any directly adjacent side' : 'north side'}
+                {type !== 'power' ? 'any directly adjacent side' : 'north side'}
               </small>
             )}
             {network && (
@@ -136,6 +142,25 @@ export function NetworkInspector({
                 </dl>
               </>
             )}
+            {building &&
+              type === 'road' &&
+              colony.networks.filter(
+                (n) => n.type === 'road' && n.buildings.includes(building.id),
+              ).length > 1 && (
+                <div className="road-access-list">
+                  <small>All adjacent road components:</small>
+                  {colony.networks
+                    .filter(
+                      (n) =>
+                        n.type === 'road' && n.buildings.includes(building.id),
+                    )
+                    .map((n) => (
+                      <p key={n.id}>
+                        {n.id} · {n.segments.length} segments
+                      </p>
+                    ))}
+                </div>
+              )}
             {segment && (
               <>
                 <p>

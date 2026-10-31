@@ -113,7 +113,7 @@ const baseColonySchema = z
     speed: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(4)]),
     nextBuildingId: integer,
     telemetry: telemetrySchema,
-    networkRulesVersion: z.literal(2),
+    networkRulesVersion: z.literal(3),
     infrastructure: z.array(infrastructureSchema).max(1600),
     networks: z.array(networkSchema).max(1600),
   })
@@ -415,7 +415,7 @@ export function newGame(seed = 1): ColonyState {
     speed: 1,
     nextBuildingId: 1,
     telemetry: blankTelemetry(),
-    networkRulesVersion: 2,
+    networkRulesVersion: 3,
     infrastructure: [],
     networks: [],
   });
@@ -965,9 +965,15 @@ export function loadSave(value: unknown): ColonyState {
     .parse(value).schemaVersion;
   if (version === 4) {
     const parsed = baseColonySchema
-      .extend({ networkRulesVersion: z.union([z.literal(1), z.literal(2)]) })
+      .extend({
+        networkRulesVersion: z.union([
+          z.literal(1),
+          z.literal(2),
+          z.literal(3),
+        ]),
+      })
       .parse(value);
-    const state: ColonyState = { ...parsed, networkRulesVersion: 2 };
+    const state: ColonyState = { ...parsed, networkRulesVersion: 3 };
     return colonySchema.parse(refreshNetworks(state));
   }
   if (version === 3) {
@@ -975,7 +981,7 @@ export function loadSave(value: unknown): ColonyState {
     const state: ColonyState = {
       ...legacy,
       schemaVersion: 4,
-      networkRulesVersion: 2,
+      networkRulesVersion: 3,
       residents: createResidents(legacy),
       nextResidentId: legacy.population + 1,
       immigration: initialImmigration(legacy.tick),
@@ -990,7 +996,7 @@ export function loadSave(value: unknown): ColonyState {
       residents: [],
       nextResidentId: legacy.population + 1,
       immigration: initialImmigration(legacy.tick),
-      networkRulesVersion: 2,
+      networkRulesVersion: 3,
       infrastructure: [],
       networks: [],
       buildings: legacy.buildings.map((b) => ({

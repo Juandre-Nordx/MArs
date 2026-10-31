@@ -152,11 +152,20 @@ test('port removal immediately disconnects a habitat and network overlays reflec
   await page
     .getByRole('spinbutton', { name: 'Power priority', exact: true })
     .fill('5');
-  await page
-    .getByTestId('network-inspector')
-    .getByRole('button', { name: 'Disable segment', exact: true })
-    .first()
-    .click();
+  const oxygenContacts = connectionTiles(house, 'oxygen').filter((t) =>
+    state.infrastructure.some(
+      (s) => s.type === 'oxygen' && s.x === t.x && s.y === t.y,
+    ),
+  );
+  for (const _contact of oxygenContacts) {
+    void _contact;
+    await page
+      .getByTestId('network-inspector')
+      .locator('article')
+      .filter({ has: page.getByText('Oxygen Pipe', { exact: true }) })
+      .getByRole('button', { name: 'Disable segment', exact: true })
+      .click();
+  }
   await expect(page.getByTestId('network-inspector')).toContainText(
     'No oxygen connection',
   );

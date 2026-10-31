@@ -114,16 +114,19 @@ export function port(
   const offset = buildingDefinitions[building.type].ports[type];
   return offset ? { x: building.x + offset.x, y: building.y + offset.y } : null;
 }
-// Water manifolds accept any cardinally adjacent pipe; other utilities retain explicit ports.
+// Resource pipes and roads attach to cardinal footprint edges; power retains its explicit port.
 export function connectionTiles(
   building: NetworkBuilding,
   type: InfrastructureType,
 ): Tile[] {
-  if (type !== 'water' && type !== 'road') {
+  if (type === 'power') {
     const tile = port(building, type);
     return tile ? [tile] : [];
   }
-  if (type === 'water' && !buildingDefinitions[building.type].ports.water)
+  if (
+    (type === 'water' || type === 'oxygen') &&
+    !buildingDefinitions[building.type].ports[type]
+  )
     return [];
   const footprint = new Set(cells(building).map(tileKey));
   return [
@@ -152,7 +155,7 @@ export function rebuildNetworks(state: NetworkState): Network[] {
       .sort((a, b) => a.y - b.y || a.x - b.x);
     const byTile = new Map(segments.map((s) => [tileKey(s), s]));
     const manifolds = new Map<string, Set<string>>();
-    if (type === 'water')
+    if (type === 'water' || type === 'oxygen')
       for (const building of state.buildings) {
         const contacts = connectionTiles(building, type)
           .map((t) => byTile.get(tileKey(t)))
