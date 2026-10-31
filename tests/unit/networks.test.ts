@@ -5,6 +5,7 @@ import {
   alerts,
   buildInfrastructure,
   colonySchema,
+  connectionTiles,
   deployColony,
   distributeCargo,
   infrastructureDefinitions,
@@ -27,7 +28,14 @@ const house = (s: ColonyState) =>
   s.buildings.find((b) => b.type === 'housing')!;
 function cut(s: ColonyState, type: InfrastructureType, buildingId: string) {
   const b = s.buildings.find((b) => b.id === buildingId)!;
-  return buildInfrastructure(s, type, [port(b, type)!], true);
+  return connectionTiles(b, type)
+    .filter((tile) =>
+      s.infrastructure.some(
+        (segment) =>
+          segment.type === type && segment.x === tile.x && segment.y === tile.y,
+      ),
+    )
+    .reduce((state, tile) => buildInfrastructure(state, type, [tile], true), s);
 }
 function total(s: ColonyState, key: 'water' | 'oxygen' | 'energy') {
   return s.buildings.reduce((sum, b) => sum + b.stores[key], 0);

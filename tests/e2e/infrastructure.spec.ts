@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
   findLandingZone,
+  connectionTiles,
   port,
   deployColony,
   newGame,
@@ -103,8 +104,7 @@ test('port removal immediately disconnects a habitat and network overlays reflec
 }) => {
   await start(page);
   const state = deployColony(newGame(1)),
-    house = state.buildings.find((b) => b.type === 'housing')!,
-    endpoint = port(house, 'water')!;
+    house = state.buildings.find((b) => b.type === 'housing')!;
   await page
     .getByLabel('Network display', { exact: true })
     .selectOption('water');
@@ -121,8 +121,14 @@ test('port removal immediately disconnects a habitat and network overlays reflec
   await page
     .getByRole('button', { name: 'Demolish tool', exact: true })
     .click();
-  await drag(page, endpoint, endpoint);
-  await page.getByRole('button', { name: 'Confirm route' }).click();
+  for (const contact of connectionTiles(house, 'water').filter((t) =>
+    state.infrastructure.some(
+      (s) => s.type === 'water' && s.x === t.x && s.y === t.y,
+    ),
+  )) {
+    await drag(page, contact, contact);
+    await page.getByRole('button', { name: 'Confirm route' }).click();
+  }
   await page.keyboard.press('Escape');
   await page.getByText('Building roster (19)', { exact: true }).click();
   await page

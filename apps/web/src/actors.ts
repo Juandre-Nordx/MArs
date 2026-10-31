@@ -82,18 +82,41 @@ export function installActorSprites(scene: Phaser.Scene) {
 }
 export class ActorRenderer {
   private images = new Map<string, Phaser.GameObjects.Image>();
+  private ring: Phaser.GameObjects.Graphics;
   private tick = -1;
   private progress = 1;
   constructor(private scene: Phaser.Scene) {
     installActorSprites(scene);
+    this.ring = scene.add.graphics();
   }
   reset() {
+    this.ring.clear();
     this.tick = -1;
     this.progress = 1;
     for (const image of this.images.values()) image.destroy();
     this.images.clear();
   }
-  update(state: ColonyState | null, delta: number) {
+  pickResident(x: number, y: number): string | null {
+    return (
+      [...this.images.entries()]
+        .filter(
+          ([id, image]) =>
+            id.startsWith('colonist-') &&
+            image.visible &&
+            x >= image.x - 9 &&
+            x <= image.x + 11 &&
+            y >= image.y - 27 &&
+            y <= image.y + 1,
+        )
+        .sort((a, b) => b[1].depth - a[1].depth)[0]?.[0] ?? null
+    );
+  }
+  update(
+    state: ColonyState | null,
+    delta: number,
+    selected: string | null = null,
+  ) {
+    this.ring.clear();
     if (!state || state.phase !== 'active') {
       for (const image of this.images.values()) image.setVisible(false);
       return;
@@ -127,6 +150,11 @@ export class ActorRenderer {
         .setTexture(texture)
         .setPosition(p.x, p.y)
         .setDepth((x + y) * 10 + 5);
+      if (id === selected)
+        this.ring
+          .setDepth((x + y) * 10 + 4)
+          .lineStyle(2, 0xffc68a)
+          .strokeEllipse(p.x, p.y + 1, 20, 9);
       const dx = position.x - position.y - (previous.x - previous.y);
       if (dx) image.setFlipX(dx < 0);
     };

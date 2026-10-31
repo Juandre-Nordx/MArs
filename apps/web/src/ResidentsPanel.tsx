@@ -8,8 +8,12 @@ import {
 export function ResidentsPanel({
   colony,
   onCommand,
+  onSelect,
+  selectedId,
 }: {
   colony: ColonyState;
+  onSelect: (id: string) => void;
+  selectedId: string | null;
   onCommand: (update: (state: ColonyState) => ColonyState) => void;
 }) {
   const readiness = arrivalReadiness(colony),
@@ -50,8 +54,14 @@ export function ResidentsPanel({
         <ul className="resident-roster">
           {colony.residents.map((r) => (
             <li key={r.id}>
-              <strong>{r.id.replace('colonist-', 'Colonist ')}</strong> ·{' '}
-              {r.activity}
+              <button
+                aria-label={`Talk to ${r.id.replace('colonist-', 'Colonist ')}`}
+                aria-pressed={selectedId === r.id}
+                onClick={() => onSelect(r.id)}
+              >
+                {r.id.replace('colonist-', 'Colonist ')}
+              </button>{' '}
+              · {r.activity}
               <small>
                 {r.homeId ? `Home ${r.homeId}` : 'Needs a home'}
                 {r.destinationId

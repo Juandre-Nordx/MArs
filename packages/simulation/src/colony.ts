@@ -113,7 +113,7 @@ const baseColonySchema = z
     speed: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(4)]),
     nextBuildingId: integer,
     telemetry: telemetrySchema,
-    networkRulesVersion: z.literal(1),
+    networkRulesVersion: z.literal(2),
     infrastructure: z.array(infrastructureSchema).max(1600),
     networks: z.array(networkSchema).max(1600),
   })
@@ -415,7 +415,7 @@ export function newGame(seed = 1): ColonyState {
     speed: 1,
     nextBuildingId: 1,
     telemetry: blankTelemetry(),
-    networkRulesVersion: 1,
+    networkRulesVersion: 2,
     infrastructure: [],
     networks: [],
   });
@@ -941,7 +941,7 @@ export function alerts(state: ColonyState): string[] {
 }
 const version3Schema = baseColonySchema
   .omit({ residents: true, nextResidentId: true, immigration: true })
-  .extend({ schemaVersion: z.literal(3) });
+  .extend({ schemaVersion: z.literal(3), networkRulesVersion: z.literal(1) });
 const legacyBuildingSchema = buildingSchema.omit({
   stores: true,
   priority: true,
@@ -964,7 +964,10 @@ export function loadSave(value: unknown): ColonyState {
     .object({ schemaVersion: z.number() })
     .parse(value).schemaVersion;
   if (version === 4) {
-    const state = baseColonySchema.parse(value);
+    const parsed = baseColonySchema
+      .extend({ networkRulesVersion: z.union([z.literal(1), z.literal(2)]) })
+      .parse(value);
+    const state: ColonyState = { ...parsed, networkRulesVersion: 2 };
     return colonySchema.parse(refreshNetworks(state));
   }
   if (version === 3) {
@@ -972,6 +975,7 @@ export function loadSave(value: unknown): ColonyState {
     const state: ColonyState = {
       ...legacy,
       schemaVersion: 4,
+      networkRulesVersion: 2,
       residents: createResidents(legacy),
       nextResidentId: legacy.population + 1,
       immigration: initialImmigration(legacy.tick),
@@ -986,7 +990,7 @@ export function loadSave(value: unknown): ColonyState {
       residents: [],
       nextResidentId: legacy.population + 1,
       immigration: initialImmigration(legacy.tick),
-      networkRulesVersion: 1,
+      networkRulesVersion: 2,
       infrastructure: [],
       networks: [],
       buildings: legacy.buildings.map((b) => ({

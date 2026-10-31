@@ -32,6 +32,7 @@ import {
 } from '@mars/simulation';
 import { NetworkInspector, connectionLabels } from './NetworkInspector';
 import { ResidentsPanel } from './ResidentsPanel';
+import { ColonistInspector } from './ColonistInspector';
 import { World } from './World';
 import './style.css';
 const SAVE_KEY = 'mars-first-colony-save';
@@ -42,6 +43,13 @@ function App() {
   const last = useRef(performance.now());
   const inspectorRef = useRef<HTMLElement>(null);
   const [colony, setColony] = useState<ColonyState | null>(null);
+  const [selectedResidentId, setSelectedResidentId] = useState<string | null>(
+    null,
+  );
+  const selectResident = useCallback((id: string) => {
+    setSelectedResidentId(id);
+    setTile(null);
+  }, []);
   const [tile, setTile] = useState<Tile | null>(null);
   const [hover, setHover] = useState<Tile | null>(null);
   const [mission, setMission] = useState(0);
@@ -87,6 +95,7 @@ function App() {
           );
         }
       }
+      setSelectedResidentId(null);
       setTile(value);
     },
     [publish],
@@ -121,6 +130,7 @@ function App() {
         setInfrastructureTool(null);
         setDraft([]);
         setCategory(null);
+        setSelectedResidentId(null);
       }
     };
     window.addEventListener('keydown', cancel);
@@ -146,6 +156,7 @@ function App() {
       const state = colonySchema.parse((body as { colony?: unknown }).colony);
       publish(state, true);
       setMission((value) => value + 1);
+      setSelectedResidentId(null);
       setTile(null);
       setConstruction(null);
       setInfrastructureTool(null);
@@ -175,6 +186,7 @@ function App() {
       const state = loadSave(JSON.parse(value));
       publish(state, true);
       setMission((value) => value + 1);
+      setSelectedResidentId(null);
       setTile(null);
       setConstruction(null);
       setInfrastructureTool(null);
@@ -189,7 +201,7 @@ function App() {
   const definition = building ? buildingDefinitions[building.type] : undefined;
   useEffect(() => {
     inspectorRef.current?.scrollTo({ top: 0 });
-  }, [building?.id]);
+  }, [building?.id, selectedResidentId]);
   const cap = colony ? capacities(colony) : null;
   const warnings = colony ? alerts(colony) : [];
   const preview =
@@ -345,10 +357,12 @@ function App() {
               <option value="power">Electrical network</option>
               <option value="road">Road network</option>
             </select>
-            <small>v0.2.2 · Temporary procedural artwork</small>
+            <small>v0.2.2.1 · Temporary procedural artwork</small>
           </label>
           <World
             colony={colony}
+            selectedResidentId={selectedResidentId}
+            onResidentSelect={selectResident}
             view={view}
             infrastructureTool={infrastructureTool}
             draft={draft}
@@ -429,8 +443,19 @@ function App() {
         <aside ref={inspectorRef} className="inspector">
           <span className="eyebrow">COLONY INSPECTOR</span>
           <p data-testid="selection">
-            {tile ? `Sector ${tile.x}, ${tile.y}` : 'Select a terrain tile'}
+            {selectedResidentId
+              ? 'Resident conversation'
+              : tile
+                ? `Sector ${tile.x}, ${tile.y}`
+                : 'Select a terrain tile'}
           </p>
+          {colony && selectedResidentId && (
+            <ColonistInspector
+              colony={colony}
+              id={selectedResidentId}
+              onClose={() => setSelectedResidentId(null)}
+            />
+          )}
           {building && definition ? (
             <section data-testid="building-inspector">
               <h3>{definition.name}</h3>
@@ -506,7 +531,7 @@ function App() {
                 colony logistics. Disabled storage retains its contents.
               </p>
             </section>
-          ) : (
+          ) : !selectedResidentId ? (
             <section>
               <h3>
                 {colony?.phase === 'landing'
@@ -518,10 +543,12 @@ function App() {
                 facilities from the toolbar.
               </p>
             </section>
-          )}
+          ) : null}
           {colony?.phase === 'active' && (
             <ResidentsPanel
               colony={colony}
+              onSelect={selectResident}
+              selectedId={selectedResidentId}
               onCommand={(update) => {
                 if (clock.current) publish(update(clock.current.colony));
               }}
@@ -596,6 +623,7 @@ function App() {
                   <button
                     key={b.id}
                     onClick={() => {
+                      setSelectedResidentId(null);
                       setConstruction(null);
                       setTile({ x: b.x, y: b.y });
                     }}
@@ -664,7 +692,8 @@ function App() {
               Demolish tool
             </button>
             <span>
-              Layers can cross on free terrain. Building ports face north.
+              Layers can cross on free terrain. Water connects on any side;
+              oxygen/power ports face north.
             </span>
           </div>
         )}

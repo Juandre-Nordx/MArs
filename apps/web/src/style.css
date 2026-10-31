@@ -444,3 +444,73 @@ nav {
 .resident-roster small {
   display: block;
 }
+
+.citizen-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.citizen-title button {
+  margin: 0;
+}
+.citizen-mood {
+  display: inline-block;
+  border: 1px solid #769e8e;
+  padding: 3px 8px;
+  font-size: 12px;
+  border-radius: 20px;
+  color: #9be4bf;
+}
+.citizen-mood.concerned {
+  color: #f5cd82;
+  border-color: #a78245;
+}
+.citizen-mood.distressed {
+  color: #ffac9b;
+  border-color: #b86456;
+}
+.colonist-inspector blockquote {
+  margin: 15px 0;
+  padding: 12px;
+  background: #2b302d;
+  border-left: 3px solid #e6a66c;
+  line-height: 1.6;
+}
+.citizen-comments {
+  list-style: none;
+  padding: 0;
+}
+.citizen-comments li {
+  padding: 10px 0;
+  border-bottom: 1px solid #3e4444;
+  font-size: 12px;
+}
+.citizen-comments strong {
+  color: #b3d6c6;
+}
+.citizen-concerns strong {
+  color: #efb09b;
+}
+.citizen-comments p {
+  margin: 5px 0;
+}
+.citizen-comments small {
+  display: block;
+}
+.citizen-action {
+  color: #e7c097;
+}
+.resident-roster button {
+  padding: 4px 6px;
+  margin: 0 0 3px;
+}
+
+.citizen-positive li {
+  padding: 6px 0;
+}
+.citizen-comments details summary {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #b3d6c6;
+}
