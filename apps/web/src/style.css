@@ -333,3 +333,95 @@ nav {
     right: 18px;
   }
 }
+
+.network-selector {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #171b20de;
+  padding: 8px 12px;
+  border: 1px solid #64513f;
+  font-size: 11px;
+  max-width: 235px;
+}
+.network-selector select {
+  background: #272d32;
+  color: #f2e8d8;
+  border: 1px solid #80705a;
+  padding: 6px;
+}
+.network-card {
+  border-left: 3px solid;
+  margin: 12px 0;
+  padding: 8px;
+  background: #151a1f;
+}
+.network-card p {
+  font-size: 12px;
+}
+.network-id {
+  font-size: 10px;
+  word-break: break-all;
+  text-align: left;
+}
+.priority-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  gap: 8px;
+}
+.priority-control input {
+  width: 52px;
+  background: #30383b;
+  border: 1px solid #738079;
+  color: #eee;
+  padding: 5px;
+}
+.segment-actions {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.segment-actions button {
+  font-size: 10px;
+  padding: 5px;
+}
+.infrastructure-preview {
+  bottom: 100px;
+  max-width: 460px;
+  z-index: 3;
+  pointer-events: none;
+}
+.infrastructure-preview button {
+  pointer-events: auto;
+  margin: 4px;
+}
+.infrastructure-menu {
+  z-index: 4;
+}
+.network-selector small {
+  font-size: 9px;
+}
+@media (max-width: 760px) {
+  .network-selector {
+    right: 6px;
+    top: 6px;
+    max-width: 170px;
+  }
+  .map-caption {
+    top: 6px;
+    left: 6px;
+    max-width: 190px;
+  }
+  .infrastructure-preview {
+    bottom: 100px;
+    left: 6px;
+    font-size: 11px;
+    max-width: 300px;
+  }
+}

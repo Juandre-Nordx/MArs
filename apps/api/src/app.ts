@@ -10,7 +10,11 @@ export function createApp(database?: PrismaClient) {
   app.addHook('onClose', async () => {
     await client?.$disconnect();
   });
-  app.get('/api/health', async () => ({ status: 'ok', stage: 2 }));
+  app.get('/api/health', async () => ({
+    status: 'ok',
+    stage: 2,
+    version: '0.2.1',
+  }));
   app.get('/api/ready', async (_request, reply) => {
     try {
       await db().$queryRaw`SELECT 1`;

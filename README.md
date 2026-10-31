@@ -1,8 +1,14 @@
-# MARS: FIRST COLONY
+# MARS: FIRST COLONY — v0.2.1
 
 An original browser-based isometric Mars colony prototype. Stage 2 extends the existing Stage 1 code; Phaser projection/camera controls, React/Vite, Fastify, npm workspaces and Railway configuration are preserved.
 
-## Playable Stage 2
+## Infrastructure release
+
+Water/oxygen pipes, electrical cables and roads now occupy separate tile layers. Buildings use explicit ports and independent network components; physical tanks/batteries keep reserves when a network splits. The starter colony includes connected utility routes and roads. Drag routes, preview total costs, confirm or cancel, demolish with configured refunds, inspect network metrics and toggle network overlays. Original cached transparent sprites replace the earlier flat blocks; the UI clearly labels them as temporary procedural art.
+
+Save schema 3 persists infrastructure, disabled/damaged segments, physical stores and power priorities. Version 2 colonies retain buildings/resources and receive a one-time compatibility network. See [v0.2.1 implementation and migration details](docs/V0.2.1.md).
+
+## Preserved colony gameplay
 
 - Seeded dust, sand and basalt terrain with procedural rocks/boulders/ripples. Decoration never blocks placement.
 - Automatic Starship descent, exhaust/dust, camera centering and a skip button. The simulation waits for touchdown; deployment is idempotent.
@@ -10,7 +16,7 @@ An original browser-based isometric Mars colony prototype. Stage 2 extends the e
 - Ten colonists, input-funded oxygen/water/food production, population consumption, day/night solar power, finite battery charge/discharge, storage limits, operational statuses and reserve alerts.
 - Pause, 1×, 2× and 4× fixed-step simulation. HUD values come from colony state and the last completed tick.
 - Building inspection, footprint selection, roster, enable/disable controls and paid construction with valid/invalid footprint previews. Mining and industry remain locked.
-- Explicit browser Save/Load with strict version 2 validation and a version 1 migration. Cloud saves and login issuance are still unavailable.
+- Explicit browser Save/Load with strict version 3 validation and version 1/2 migrations. Cloud saves and login issuance are still unavailable.
 
 See [Stage 2 design, validation and limitations](docs/STAGE2.md) and [Railway deployment](docs/RAILWAY.md). Stage 3 has not started.
 
@@ -54,7 +60,7 @@ Stop an existing development server before Playwright; its configuration owns th
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm run test:e2e
 ```
 
-Current validation: production workspace build, 30 Vitest tests, four Chromium browser tests, lint and formatting passed. Coverage includes seeded maps, exact starter counts/accessibility, idempotent deployment/load, production/consumption accounting, power/worker starvation, capacity limits over 1,500 ticks, clock determinism/speeds, save migration, footprint selection, paid construction and the original economic/camera checks. Laptop layouts were inspected at 1366×768, 1280×720 and 1024×768 without horizontal overflow.
+Current validation: production workspace build, 47 Vitest tests, seven Chromium browser tests, lint and formatting passed. Coverage includes seeded maps, exact starter counts/accessibility, idempotent deployment/load, production/consumption accounting, power/worker starvation, capacity limits over 1,500 ticks, clock determinism/speeds, save migration, footprint selection, paid construction and the original economic/camera checks. Laptop layouts were inspected at 1366×768, 1280×720 and 1024×768 without horizontal overflow.
 
 For database/container verification when access is available:
 
@@ -65,17 +71,20 @@ curl --fail http://127.0.0.1:3001/api/ready
 docker compose up --build
 ```
 
-Stage 1 migration SQL was independently applied successfully to PostgreSQL 16. Prisma-managed migration/client integration and the full Docker application image remain unverified here due to the engine download restriction. Stage 2 changes no database tables or deployment settings. Vite reports a large Phaser bundle warning; it does not fail the build.
+Stage 1 migration SQL was independently applied successfully to PostgreSQL 16. Prisma-managed migration/client integration and the full Docker application image remain unverified here due to the engine download restriction. v0.2.1 changes no database tables or deployment settings. Vite reports a large Phaser bundle warning; it does not fail the build.
 
 ## Architecture
 
 - `packages/simulation/src/catalog.ts`: shared building/resource definitions, costs, recipes, storage and rates.
+- `packages/simulation/src/networks.ts`: reusable channel graphs, ports, physical storage and infrastructure rules.
 - `packages/simulation/src/terrain.ts`: deterministic seed hashing and decorative map generation.
 - `packages/simulation/src/colony.ts`: validated state, deployment, footprints/access, commands, simulation clock and save migration.
 - `packages/simulation/src/inventory.ts`: preserved Stage 1 pure inventory/recipe helpers.
+- `apps/web/src/art.ts`: cached transparent temporary building/connection sprites.
+- `apps/web/src/NetworkInspector.tsx`: actual network observations and segment controls.
 - `apps/web/src/World.tsx`: Phaser terrain, placeholder buildings, landing animation and camera; it never edits colony state.
 - `apps/web/src/main.tsx`: React HUD, construction/inspection and clock adapter; every gameplay mutation calls simulation functions.
-- `apps/api`: compatible Fastify endpoints and the original Prisma schema/migration. `/api/new-game` now returns schema version 2 and `/api/health` identifies Stage 2.
+- `apps/api`: compatible Fastify endpoints and the original Prisma schema/migration. `/api/new-game` now returns schema version 3 and `/api/health` identifies release 0.2.1.
 
 ## Docker and Railway
 

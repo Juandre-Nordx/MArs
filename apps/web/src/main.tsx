@@ -2,6 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   advance,
+  buildInfrastructure,
+  infrastructureDefinitions,
+  infrastructureTypeSchema,
+  networkFor,
+  reserve,
+  routePreview,
+  type InfrastructureType,
   alerts,
   buildingAt,
   buildingDefinitions,
@@ -23,6 +30,7 @@ import {
   type Stock,
   type Tile,
 } from '@mars/simulation';
+import { NetworkInspector, connectionLabels } from './NetworkInspector';
 import { World } from './World';
 import './style.css';
 const SAVE_KEY = 'mars-first-colony-save';
@@ -39,7 +47,20 @@ function App() {
   const [construction, setConstruction] = useState<BuildingType | null>(null);
   const constructionRef = useRef(construction);
   constructionRef.current = construction;
-  const [category, setCategory] = useState<Category | null>(null);
+  const [category, setCategory] = useState<Category | 'Infrastructure' | null>(
+    null,
+  );
+  const [infrastructureTool, setInfrastructureTool] = useState<{
+    type: InfrastructureType;
+    demolish: boolean;
+  } | null>(null);
+  const [draft, setDraft] = useState<Tile[]>([]);
+  const [view, setView] = useState<InfrastructureType | 'normal'>('normal');
+  const cancelPlacement = useCallback(() => {
+    setConstruction(null);
+    setInfrastructureTool(null);
+    setDraft([]);
+  }, []);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const publish = useCallback((state: ColonyState, reset = false) => {
@@ -96,6 +117,8 @@ function App() {
     const cancel = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setConstruction(null);
+        setInfrastructureTool(null);
+        setDraft([]);
         setCategory(null);
       }
     };
@@ -124,6 +147,8 @@ function App() {
       setMission((value) => value + 1);
       setTile(null);
       setConstruction(null);
+      setInfrastructureTool(null);
+      setDraft([]);
       setCategory(null);
     } catch (error) {
       setMessage(
@@ -151,6 +176,8 @@ function App() {
       setMission((value) => value + 1);
       setTile(null);
       setConstruction(null);
+      setInfrastructureTool(null);
+      setDraft([]);
       setCategory(null);
       setMessage('Browser save loaded');
     } catch (error) {
@@ -168,6 +195,52 @@ function App() {
     colony && construction && hover
       ? placement(colony, construction, hover)
       : null;
+  const infrastructurePreview =
+    colony && infrastructureTool && draft.length
+      ? routePreview(
+          colony,
+          infrastructureTool.type,
+          draft,
+          infrastructureTool.demolish,
+        )
+      : null;
+  function confirmRoute() {
+    if (!clock.current || !infrastructureTool) return;
+    try {
+      publish(
+        buildInfrastructure(
+          clock.current.colony,
+          infrastructureTool.type,
+          draft,
+          infrastructureTool.demolish,
+        ),
+      );
+      setDraft([]);
+      setMessage(
+        infrastructureTool.demolish
+          ? 'Infrastructure removed'
+          : 'Infrastructure constructed',
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'Infrastructure command failed',
+      );
+    }
+  }
+  const connectedInventory = (key: keyof Stock) => {
+    if (!colony || !building) return 0;
+    const type =
+      key === 'energy'
+        ? 'power'
+        : key === 'water' || key === 'oxygen'
+          ? key
+          : null;
+    if (!type) return colony.inventory[key];
+    const network = networkFor(colony.networks, building.id, type);
+    return network ? reserve(colony, network) : 0;
+  };
   function inventoryList(items: Partial<Stock>) {
     return (
       Object.entries(items)
@@ -251,8 +324,32 @@ function App() {
       </header>
       <section className="workspace">
         <div className="viewport">
+          <label className="network-selector">
+            Network display
+            <select
+              aria-label="Network display"
+              value={view}
+              onChange={(event) =>
+                setView(event.target.value as InfrastructureType | 'normal')
+              }
+            >
+              <option value="normal">Normal view</option>
+              <option value="water">Water network</option>
+              <option value="oxygen">Oxygen network</option>
+              <option value="power">Electrical network</option>
+              <option value="road">Road network</option>
+            </select>
+            <small>v0.2.1 · Temporary procedural artwork</small>
+          </label>
           <World
             colony={colony}
+            view={view}
+            infrastructureTool={infrastructureTool}
+            draft={draft}
+            routeValid={infrastructurePreview?.valid ?? false}
+            buildingPreviewValid={preview?.valid ?? true}
+            onRoute={setDraft}
+            onCancel={cancelPlacement}
             mission={mission}
             selected={tile}
             construction={construction}
@@ -275,6 +372,37 @@ function App() {
               <button className="primary" onClick={touchdown}>
                 Skip landing
               </button>
+            </div>
+          )}
+          {infrastructureTool && (
+            <div
+              className={`placement-panel infrastructure-preview ${infrastructurePreview && !infrastructurePreview.valid ? 'invalid' : ''}`}
+              data-testid="route-preview"
+            >
+              <strong>
+                {infrastructureTool.demolish ? 'Demolish' : 'Place'}{' '}
+                {infrastructureDefinitions[infrastructureTool.type].name}
+              </strong>
+              <p>
+                Click or drag a connected route, then confirm. Right click / Esc
+                cancels.
+              </p>
+              <p>
+                {infrastructurePreview?.reason ?? 'Select route on terrain'} ·{' '}
+                {draft.length} tiles
+              </p>
+              <p data-testid="route-cost">
+                Cost: {infrastructurePreview?.cost ?? 0} metal · Refund:{' '}
+                {infrastructurePreview?.refund ?? 0} metal
+              </p>
+              <button
+                disabled={!infrastructurePreview?.valid}
+                onClick={confirmRoute}
+              >
+                Confirm route
+              </button>
+              <button onClick={() => setDraft([])}>Clear route</button>
+              <button onClick={cancelPlacement}>Cancel route</button>
             </div>
           )}
           {construction && (
@@ -311,7 +439,9 @@ function App() {
                 <dt>Power demand</dt>
                 <dd>{definition.power} kWh/tick</dd>
                 <dt>Production status</dt>
-                <dd data-testid="building-status">{building.status}</dd>
+                <dd data-testid="building-status">
+                  {connectionLabels[building.status] ?? building.status}
+                </dd>
                 <dt>Footprint</dt>
                 <dd>
                   {definition.width} × {definition.height}
@@ -336,7 +466,7 @@ function App() {
                     Object.fromEntries(
                       Object.keys(definition.inputs).map((key) => [
                         key,
-                        colony.inventory[key as keyof Stock],
+                        connectedInventory(key as keyof Stock),
                       ]),
                     ),
                   )}
@@ -348,11 +478,13 @@ function App() {
                     Object.fromEntries(
                       Object.keys(definition.outputs).map((key) => [
                         key,
-                        colony.inventory[key as keyof Stock],
+                        connectedInventory(key as keyof Stock),
                       ]),
                     ),
                   )}
               </p>
+              <h4>Local utility storage</h4>
+              <p>{inventoryList(building.stores)}</p>
               <h4>Storage capacity</h4>
               <p>{inventoryList(definition.capacity)}</p>
               <button
@@ -364,8 +496,8 @@ function App() {
                 {building.enabled ? 'Disable building' : 'Enable building'}
               </button>
               <p className="muted">
-                Buildings share colony storage; disabling storage retains its
-                contents.
+                Utilities use connected physical stores. Other cargo uses shared
+                colony logistics. Disabled storage retains its contents.
               </p>
             </section>
           ) : (
@@ -380,6 +512,17 @@ function App() {
                 facilities from the toolbar.
               </p>
             </section>
+          )}
+          {colony?.phase === 'active' && (
+            <NetworkInspector
+              colony={colony}
+              building={building}
+              tile={tile}
+              onChange={(update) => {
+                if (clock.current) publish(update(clock.current.colony));
+              }}
+              onView={setView}
+            />
           )}
           {colony?.phase === 'active' && (
             <>
@@ -450,13 +593,14 @@ function App() {
             </details>
           )}
           <p className="muted">
-            Prototype artwork · Browser saves only · Mining and industry locked
+            Temporary original sprite artwork · Browser saves only · Mining and
+            industry locked
           </p>
         </aside>
       </section>
       <footer className="construction-toolbar">
         <nav aria-label="Construction categories">
-          {categories.map((item) => (
+          {[...categories, 'Infrastructure' as const].map((item) => (
             <button
               key={item}
               disabled={!colony || colony.phase !== 'active'}
@@ -464,6 +608,8 @@ function App() {
               onClick={() => {
                 setCategory(category === item ? null : item);
                 setConstruction(null);
+                setInfrastructureTool(null);
+                setDraft([]);
               }}
             >
               {item}
@@ -472,7 +618,43 @@ function App() {
           <button disabled>Mining · locked</button>
           <button disabled>Industry · locked</button>
         </nav>
-        {category && (
+        {category === 'Infrastructure' && (
+          <div className="build-menu infrastructure-menu">
+            {infrastructureTypeSchema.options.map((type) => (
+              <button
+                key={type}
+                aria-pressed={infrastructureTool?.type === type}
+                onClick={() => {
+                  setConstruction(null);
+                  setInfrastructureTool({ type, demolish: false });
+                  setDraft([]);
+                  setView(type);
+                }}
+              >
+                {infrastructureDefinitions[type].name}
+                <small>
+                  {infrastructureDefinitions[type].metal} metal / tile
+                </small>
+              </button>
+            ))}
+            <button
+              disabled={!infrastructureTool}
+              aria-pressed={infrastructureTool?.demolish ?? false}
+              onClick={() => {
+                setInfrastructureTool((tool) =>
+                  tool ? { ...tool, demolish: !tool.demolish } : null,
+                );
+                setDraft([]);
+              }}
+            >
+              Demolish tool
+            </button>
+            <span>
+              Layers can cross on free terrain. Building ports face north.
+            </span>
+          </div>
+        )}
+        {category && category !== 'Infrastructure' && (
           <div className="build-menu">
             {(Object.keys(buildingDefinitions) as BuildingType[])
               .filter(
@@ -486,7 +668,11 @@ function App() {
                   <button
                     key={type}
                     aria-pressed={construction === type}
-                    onClick={() => setConstruction(type)}
+                    onClick={() => {
+                      setInfrastructureTool(null);
+                      setDraft([]);
+                      setConstruction(type);
+                    }}
                   >
                     {d.name}
                     <small>
