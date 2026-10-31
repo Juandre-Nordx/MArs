@@ -73,6 +73,7 @@ npm test
 npm run lint
 npm run format:check
 npm run benchmark:world
+npm run test:production
 npx playwright install --with-deps chromium
 npm run test:e2e
 ```
@@ -83,7 +84,7 @@ Stop an existing development server before Playwright; its configuration owns th
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm run test:e2e
 ```
 
-Current validation: production workspace build, 97 Vitest tests, sixteen Chromium browser checks, lint and formatting passed. Coverage includes seeded maps, exact starter counts/accessibility, idempotent deployment/load, production/consumption accounting, power/worker starvation, capacity limits over 1,500 ticks, clock determinism/speeds, save migration, footprint selection, paid construction and the original economic/camera checks. Earlier baseline layouts were inspected at 1366×768, 1280×720 and 1024×768. The new large-world browser checks use the Playwright default viewport; pure culling tests cover 1366×768 at minimum zoom.
+Current validation: production workspace build, 99 Vitest tests, sixteen Chromium browser checks, lint and formatting passed. Coverage includes seeded maps, exact starter counts/accessibility, idempotent deployment/load, production/consumption accounting, power/worker starvation, capacity limits over 1,500 ticks, clock determinism/speeds, save migration, footprint selection, paid construction and the original economic/camera checks. Earlier baseline layouts were inspected at 1366×768, 1280×720 and 1024×768. The new large-world browser checks use the Playwright default viewport; pure culling tests cover 1366×768 at minimum zoom.
 
 For database/container verification when access is available:
 
@@ -94,7 +95,7 @@ curl --fail http://127.0.0.1:3001/api/ready
 docker compose up --build
 ```
 
-Stage 1 migration SQL was independently applied successfully to PostgreSQL 16. Prisma-managed migration/client integration and the full Docker application image remain unverified here due to the engine download restriction. V0.3.1 Phase 1 changes no database tables or deployment settings. Vite reports a large Phaser bundle warning; it does not fail the build.
+Stage 1 migration SQL was independently applied successfully to PostgreSQL 16. Prisma-managed migration/client integration and the full Docker application image remain unverified here due to the engine download restriction. The Railway startup fix changes deployment health to `/api/health` and starts HTTP independently of database migrations. Database readiness remains available separately at `/api/ready`; see [startup fix details](docs/RAILWAY-STARTUP-FIX.md). Vite reports a large Phaser bundle warning; it does not fail the build.
 
 ## Architecture
 
@@ -120,4 +121,4 @@ Stage 1 migration SQL was independently applied successfully to PostgreSQL 16. P
 docker compose up --build
 ```
 
-The compiled app and API share port 3001 in Docker. Compose retains PostgreSQL in `mars-db`; example credentials are local-development values only. Railway continues to use the existing Dockerfile, `$PORT`, `WEB_ROOT` and `/api/ready` health check. See [deployment steps](docs/RAILWAY.md). No live service was deployed or modified during this work.
+The compiled app and API share port 3001 in Docker. Compose retains PostgreSQL in `mars-db`; example credentials are local-development values only. Railway uses the Dockerfile, `$PORT`, `WEB_ROOT` and `/api/health` health check. Startup validates web assets and logs progress without running migrations. PostgreSQL is optional for browser-local gameplay; database readiness remains a separate `/api/ready` check. See [deployment steps](docs/RAILWAY.md). No live service was deployed or modified during this work.
