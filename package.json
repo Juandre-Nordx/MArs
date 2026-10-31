@@ -1,7 +1,7 @@
 {
   "name": "mars-first-colony",
   "private": true,
-  "version": "0.2.2+3",
+  "version": "0.3.1-phase.1",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -18,7 +18,8 @@
     "format:check": "prettier --check .",
     "format": "prettier --write .",
     "db:generate": "npm run db:generate -w @mars/api",
-    "db:migrate": "npm run db:migrate -w @mars/api"
+    "db:migrate": "npm run db:migrate -w @mars/api",
+    "benchmark:world": "npm run build -w @mars/simulation && node scripts/benchmark-world.mjs"
   },
   "devDependencies": {
     "typescript": "~5.7.3",

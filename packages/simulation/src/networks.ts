@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isExplored, type WorldState } from './world.js';
 import {
   buildingDefinitions,
   WORLD_SIZE,
@@ -66,6 +67,7 @@ export type NetworkBuilding = {
   stores: z.infer<typeof storesSchema>;
 };
 export type NetworkState = {
+  world?: WorldState;
   buildings: NetworkBuilding[];
   infrastructure: Segment[];
   inventory: Stock;
@@ -460,6 +462,12 @@ export function routePreview(
     )
   )
     return fail('Outside map boundary');
+  if (
+    !demolish &&
+    state.world &&
+    tiles.some((t) => !isExplored(state.world!, t))
+  )
+    return fail('Explore this terrain before building');
   const selected = new Set(tiles.map(tileKey));
   const visited = new Set([tileKey(tiles[0]!)]);
   const queue = [tiles[0]!];
