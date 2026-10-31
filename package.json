@@ -1,0 +1,35 @@
+{
+  "name": "mars-first-colony",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "concurrently -k \"npm run dev -w @mars/api\" \"npm run dev -w @mars/web\"",
+    "build": "npm run build -w @mars/simulation && npm run build -w @mars/api && npm run build -w @mars/web",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "lint": "eslint .",
+    "format:check": "prettier --check .",
+    "format": "prettier --write .",
+    "db:generate": "npm run db:generate -w @mars/api",
+    "db:migrate": "npm run db:migrate -w @mars/api"
+  },
+  "devDependencies": {
+    "typescript": "~5.7.3",
+    "vitest": "~3.0.5",
+    "@playwright/test": "~1.51.1",
+    "eslint": "~9.20.1",
+    "typescript-eslint": "~8.24.0",
+    "@eslint/js": "~9.20.0",
+    "prettier": "~3.5.1",
+    "concurrently": "~9.1.2",
+    "@types/node": "~22.13.4"
+  },
+  "type": "module"
+}
