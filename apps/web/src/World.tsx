@@ -488,10 +488,10 @@ export function World(props: Props) {
             : undefined;
           if (selectedBuilding)
             for (const [index, type] of (
-              ['water', 'oxygen', 'power'] as const
+              ['water', 'oxygen', 'power', 'road'] as const
             ).entries()) {
               const contacts =
-                type === 'water'
+                type !== 'power'
                   ? connectionTiles(selectedBuilding, type)
                   : [port(selectedBuilding, type)].filter(
                       (t): t is Tile => !!t,

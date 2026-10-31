@@ -97,9 +97,7 @@ export function residentFeedback(
           `No ${type} connection`,
           `My habitat has no ${type} connection. Please reconnect it.`,
           `Home ${home.id} is outside the ${type} network`,
-          type === 'water'
-            ? 'Place a water pipe directly beside any side of the home and link it to supply.'
-            : "Connect the home's north-side oxygen port to a supplied network.",
+          `Place ${type === 'oxygen' ? 'an' : 'a'} ${type} pipe directly beside any side of the home and link it to supply.`,
           'critical',
         );
       else if (supply <= 1e-9)

@@ -7,6 +7,7 @@ import {
   colonySchema,
   construct,
   deployColony,
+  door,
   distributeCargo,
   loadSave,
   networkFor,
@@ -205,4 +206,14 @@ describe('buggy immigration', () => {
       }),
     ).toThrow();
   });
+});
+
+it('a travelling buggy can unload at its original edge when road preference changes', () => {
+  let s = run(buildInfrastructure(vacancy(), 'road', [{ x: 1, y: 9 }]), 30);
+  const convoy = s.immigration.convoy!,
+    home = s.buildings.find((b) => b.id === convoy.homeId)!,
+    original = convoy.route.at(-1)!;
+  s = buildInfrastructure(s, 'road', [port(home, 'road')!]);
+  expect(door(s, home)).not.toEqual(original);
+  expect(run(s, 40).population).toBe(11);
 });

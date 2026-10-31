@@ -8,6 +8,7 @@ import {
 import {
   adjacent,
   cells,
+  connectionTiles,
   isUsable,
   networkFor,
   port,
@@ -129,20 +130,33 @@ export function walkingPath(
   return null;
 }
 export function door(
-  state: Pick<ColonyState, 'buildings'>,
+  state: Pick<ColonyState, 'buildings'> &
+    Partial<Pick<ColonyState, 'infrastructure'>>,
   building: Building,
 ): Tile | null {
   const blocked = new Set(
     state.buildings.flatMap((b) => cells(b).map(tileKey)),
   );
   const preferred = port(building, 'road');
-  if (preferred && valid(preferred) && !blocked.has(tileKey(preferred)))
-    return preferred;
-  return (
-    cells(building)
-      .flatMap(adjacent)
-      .find((t) => valid(t) && !blocked.has(tileKey(t))) ?? null
+  const entries = connectionTiles(building, 'road').filter(
+    (t) => !blocked.has(tileKey(t)),
   );
+  const roads = new Set(
+    (state.infrastructure ?? [])
+      .filter((s) => s.type === 'road' && isUsable(s))
+      .map(tileKey),
+  );
+  if (
+    preferred &&
+    roads.has(tileKey(preferred)) &&
+    !blocked.has(tileKey(preferred))
+  )
+    return preferred;
+  const roadEntry = entries.find((t) => roads.has(tileKey(t)));
+  if (roadEntry) return roadEntry;
+  return preferred && valid(preferred) && !blocked.has(tileKey(preferred))
+    ? preferred
+    : (entries[0] ?? null);
 }
 export function createResidents(
   state: Pick<ColonyState, 'population' | 'buildings' | 'landingZone'>,
@@ -420,7 +434,13 @@ export function advanceResidents(state: ColonyState): ColonyState {
           convoy.homeId,
         );
         const home = state.buildings.find((b) => b.id === convoy.homeId);
-        const endpoint = home ? door(state, home) : null;
+        const endpoint = home
+          ? connectionTiles(home, 'road').find(
+              (t) =>
+                tileKey(t) === tileKey(convoy.position) &&
+                !blocked.has(tileKey(t)),
+            )
+          : null;
         if (
           readiness.ready &&
           endpoint &&
