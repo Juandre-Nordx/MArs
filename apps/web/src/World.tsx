@@ -10,7 +10,6 @@ import {
   cells,
   connectionTiles,
   isUsable,
-  port,
   routeBetween,
   segmentId,
   tileKey,
@@ -490,12 +489,7 @@ export function World(props: Props) {
             for (const [index, type] of (
               ['water', 'oxygen', 'power', 'road'] as const
             ).entries()) {
-              const contacts =
-                type !== 'power'
-                  ? connectionTiles(selectedBuilding, type)
-                  : [port(selectedBuilding, type)].filter(
-                      (t): t is Tile => !!t,
-                    );
+              const contacts = connectionTiles(selectedBuilding, type);
               const connected = contacts.filter((t) =>
                 colony.infrastructure.some(
                   (s) =>

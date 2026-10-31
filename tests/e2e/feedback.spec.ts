@@ -139,7 +139,7 @@ test('citizen complaints update live when a side-adjacent water pipe reconnects 
     JSON.parse(localStorage.getItem('mars-first-colony-save')!),
   );
   expect(saved.inventory.water).toBe(s.inventory.water);
-  expect(saved.networkRulesVersion).toBe(3);
+  expect(saved.networkRulesVersion).toBe(4);
   await page.getByText('Resident roster', { exact: true }).click();
   await page
     .getByRole('button', { name: 'Talk to Colonist 1', exact: true })

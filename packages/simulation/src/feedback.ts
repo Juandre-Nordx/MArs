@@ -159,7 +159,7 @@ export function residentFeedback(
         grid
           ? `${grid.id} cannot supply this home`
           : 'No electrical connection at this home',
-        'Check the north-side cable port, connected solar arrays and battery charge.',
+        'Place a cable directly beside any side of the building and link it to connected solar arrays or charged batteries.',
         'warning',
       );
     else
