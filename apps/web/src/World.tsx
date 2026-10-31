@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { ActorRenderer } from './actors';
 import Phaser from 'phaser';
 import {
   buildingDefinitions,
@@ -55,6 +56,7 @@ export function World(props: Props) {
   useEffect(() => {
     if (!host.current) return;
     class MarsScene extends Phaser.Scene {
+      private actors!: ActorRenderer;
       private specs!: Record<BuildingType, SpriteSpec>;
       private buildingImages: Phaser.GameObjects.Image[] = [];
       private infrastructureImages: Phaser.GameObjects.Image[] = [];
@@ -72,6 +74,7 @@ export function World(props: Props) {
       private landed = false;
       private hover: Tile | null = null;
       create() {
+        this.actors = new ActorRenderer(this);
         this.specs = installBuildingSprites(this);
         installInfrastructureSprites(this);
         this.input.mouse?.disableContextMenu();
@@ -315,7 +318,7 @@ export function World(props: Props) {
       ) {
         drawCraft(graphics, x, y, scale);
       }
-      update(time: number) {
+      update(time: number, delta: number) {
         const {
           colony,
           mission,
@@ -328,6 +331,7 @@ export function World(props: Props) {
           buildingPreviewValid,
         } = latest.current;
         if (this.seed !== (colony?.seed ?? 1) || this.mission !== mission) {
+          this.actors.reset();
           this.seed = colony?.seed ?? 1;
           this.mission = mission;
           this.signature = '';
@@ -369,6 +373,7 @@ export function World(props: Props) {
           this.infrastructureSignature = infrastructureSignature;
           this.drawInfrastructure(colony, view, selected);
         }
+        this.actors.update(colony, delta);
         this.ship.clear();
         if (colony?.phase === 'landing') {
           const progress = Math.min(1, (time - this.landingStarted) / 4500);

@@ -31,6 +31,7 @@ import {
   type Tile,
 } from '@mars/simulation';
 import { NetworkInspector, connectionLabels } from './NetworkInspector';
+import { ResidentsPanel } from './ResidentsPanel';
 import { World } from './World';
 import './style.css';
 const SAVE_KEY = 'mars-first-colony-save';
@@ -273,6 +274,11 @@ function App() {
             <span>Population</span>
             <strong>{colony?.population ?? '—'}</strong>
             <small>Credits {colony?.credits ?? 0}</small>
+            <small data-testid="walking-count">
+              {colony?.residents.filter((r) => r.activity === 'walking')
+                .length ?? 0}{' '}
+              walking
+            </small>
           </div>
           {(['oxygen', 'water', 'food', 'energy'] as const).map((key) => (
             <div
@@ -339,7 +345,7 @@ function App() {
               <option value="power">Electrical network</option>
               <option value="road">Road network</option>
             </select>
-            <small>v0.2.1 · Temporary procedural artwork</small>
+            <small>v0.2.2 · Temporary procedural artwork</small>
           </label>
           <World
             colony={colony}
@@ -512,6 +518,14 @@ function App() {
                 facilities from the toolbar.
               </p>
             </section>
+          )}
+          {colony?.phase === 'active' && (
+            <ResidentsPanel
+              colony={colony}
+              onCommand={(update) => {
+                if (clock.current) publish(update(clock.current.colony));
+              }}
+            />
           )}
           {colony?.phase === 'active' && (
             <NetworkInspector
