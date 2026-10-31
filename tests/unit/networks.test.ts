@@ -308,11 +308,17 @@ describe('route commands and save compatibility', () => {
   it('migrates version 2 exactly once, preserving every building ID and resource', () => {
     const current = active();
     const {
+      residents: _residents,
+      nextResidentId: _nextResidentId,
+      immigration: _immigration,
       infrastructure: _i,
       networks: _n,
       networkRulesVersion: _r,
       ...legacy
     } = current;
+    void _residents;
+    void _nextResidentId;
+    void _immigration;
     void _i;
     void _n;
     void _r;
@@ -326,7 +332,7 @@ describe('route commands and save compatibility', () => {
       }),
     };
     const migrated = loadSave(old);
-    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.schemaVersion).toBe(4);
     expect(migrated.inventory).toEqual(old.inventory);
     expect(migrated.buildings.map((b) => b.id)).toEqual(
       old.buildings.map((b) => b.id),

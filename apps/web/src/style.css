@@ -425,3 +425,22 @@ nav {
     max-width: 300px;
   }
 }
+
+.residents-panel {
+  border-top: 1px solid #56615b;
+  margin-top: 14px;
+}
+.resident-roster {
+  padding: 0;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.resident-roster li {
+  padding: 5px 0;
+  font-size: 11px;
+  border-bottom: 1px solid #343e40;
+}
+.resident-roster small {
+  display: block;
+}

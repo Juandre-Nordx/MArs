@@ -38,7 +38,15 @@ import {
   type Segment,
   type Utility,
 } from './networks.js';
-export const SCHEMA_VERSION = 3 as const;
+import {
+  advanceResidents,
+  assignHomes,
+  createResidents,
+  immigrationSchema,
+  initialImmigration,
+  residentSchema,
+} from './people.js';
+export const SCHEMA_VERSION = 4 as const;
 export const STEP_MS = 1000;
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const buildingSchema = z
@@ -98,6 +106,9 @@ const baseColonySchema = z
     landingZone: z.object({ x: integer, y: integer }).strict(),
     buildings: z.array(buildingSchema).max(400),
     population: integer.max(1000),
+    residents: z.array(residentSchema).max(1000),
+    nextResidentId: integer.min(1),
+    immigration: immigrationSchema,
     credits: z.number().finite().nonnegative(),
     speed: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(4)]),
     nextBuildingId: integer,
@@ -180,6 +191,66 @@ export function accessible(buildings: Building[]): boolean {
   );
 }
 export const colonySchema = baseColonySchema.superRefine((state, context) => {
+  if (
+    state.residents.length !== state.population ||
+    new Set(state.residents.map((r) => r.id)).size !== state.population
+  )
+    context.addIssue({
+      code: 'custom',
+      message: 'Resident population or identities are inconsistent',
+    });
+  const occupiedHomes = new Map<string, number>();
+  for (const resident of state.residents) {
+    if (
+      !/^colonist-[1-9][0-9]*$/.test(resident.id) ||
+      Number(resident.id.slice(9)) >= state.nextResidentId
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Invalid resident identity counter',
+      });
+    if (resident.homeId) {
+      const home = state.buildings.find((b) => b.id === resident.homeId);
+      const count = (occupiedHomes.get(resident.homeId) ?? 0) + 1;
+      occupiedHomes.set(resident.homeId, count);
+      if (!home || count > buildingDefinitions[home.type].housing)
+        context.addIssue({
+          code: 'custom',
+          message: 'Resident housing is invalid or over capacity',
+        });
+    }
+    if (state.phase === 'active' && buildingAt(state, resident.position))
+      context.addIssue({
+        code: 'custom',
+        message: 'Resident is inside a building footprint',
+      });
+    let previous = resident.position;
+    for (const tile of resident.route) {
+      if (Math.abs(previous.x - tile.x) + Math.abs(previous.y - tile.y) !== 1)
+        context.addIssue({ code: 'custom', message: 'Invalid walking route' });
+      previous = tile;
+    }
+  }
+  const convoy = state.immigration.convoy;
+  if (convoy) {
+    if (
+      state.phase !== 'active' ||
+      !state.buildings.some(
+        (b) =>
+          b.id === convoy.homeId && buildingDefinitions[b.type].housing > 0,
+      )
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Invalid buggy destination',
+      });
+    let previous = convoy.position;
+    for (const tile of convoy.route) {
+      if (Math.abs(previous.x - tile.x) + Math.abs(previous.y - tile.y) !== 1)
+        context.addIssue({ code: 'custom', message: 'Invalid buggy route' });
+      previous = tile;
+    }
+  }
   const expectedZone = findLandingZone(state.seed);
   if (
     state.landingZone.x !== expectedZone.x ||
@@ -333,6 +404,13 @@ export function newGame(seed = 1): ColonyState {
     landingZone: findLandingZone(seed),
     buildings: [],
     population: 10,
+    residents: createResidents({
+      population: 10,
+      buildings: [],
+      landingZone: findLandingZone(seed),
+    }),
+    nextResidentId: 11,
+    immigration: initialImmigration(),
     credits: 100,
     speed: 1,
     nextBuildingId: 1,
@@ -373,6 +451,7 @@ export function deployColony(state: ColonyState): ColonyState {
       }),
     ),
   };
+  deployed.residents = createResidents(deployed);
   distributeCargo(deployed);
   deployed.infrastructure = starterInfrastructure(deployed.buildings);
   return colonySchema.parse(refreshNetworks(deployed));
@@ -406,6 +485,20 @@ export function placement(
     return {
       valid: false,
       reason: 'Remove infrastructure from the footprint first',
+    };
+  if (
+    footprint(type, tile).some(
+      (cell) =>
+        state.residents.some(
+          (r) => r.position.x === cell.x && r.position.y === cell.y,
+        ) ||
+        (state.immigration.convoy?.position.x === cell.x &&
+          state.immigration.convoy.position.y === cell.y),
+    )
+  )
+    return {
+      valid: false,
+      reason: 'A colonist or buggy occupies the footprint',
     };
   const definition = buildingDefinitions[type];
   if (
@@ -570,6 +663,7 @@ export function step(input: ColonyState): ColonyState {
     })),
     telemetry: blankTelemetry(),
   };
+  state.residents = assignHomes(state);
   const stock = state.inventory;
   const cap = capacities(state);
   const telemetry = state.telemetry;
@@ -711,19 +805,15 @@ export function step(input: ColonyState): ColonyState {
     building.status =
       building.type === 'solar' && !daylight ? 'ready' : 'running';
   }
-  // Utility consumption belongs to actual occupied habitats, never a global pipe pool.
-  let housed = 0;
-  for (const building of state.buildings
-    .filter((b) => buildingDefinitions[b.type].housing && isUsable(b))
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
-    const occupants = Math.min(
-      buildingDefinitions[building.type].housing,
-      Math.max(0, state.population - housed),
+  // A resident's ration is withdrawn from their assigned habitat network, including while walking in a suit.
+  for (const resident of state.residents) {
+    const building = state.buildings.find(
+      (b) => b.id === resident.homeId && isUsable(b),
     );
-    housed += occupants;
+    if (!building) continue;
     for (const key of ['water', 'oxygen'] as const) {
-      const required = occupants * populationRates[key];
-      const network = net(building.id, key);
+      const required = populationRates[key],
+        network = net(building.id, key);
       if (!network) continue;
       network.demand += required;
       const amount = Math.min(reserve(state, network), required);
@@ -795,7 +885,7 @@ export function step(input: ColonyState): ColonyState {
   telemetry.batteryDelta = round(stock.energy - priorEnergy);
   for (const key of resourceKeys)
     stock[key] = round(Math.max(0, Math.min(cap[key], stock[key])));
-  return state;
+  return advanceResidents(state);
 }
 export type ClockState = { colony: ColonyState; remainderMs: number };
 export function advance(clock: ClockState, elapsedMs: number): ClockState {
@@ -849,12 +939,22 @@ export function alerts(state: ColonyState): string[] {
   if (housing < state.population) result.push('Insufficient housing');
   return result;
 }
+const version3Schema = baseColonySchema
+  .omit({ residents: true, nextResidentId: true, immigration: true })
+  .extend({ schemaVersion: z.literal(3) });
 const legacyBuildingSchema = buildingSchema.omit({
   stores: true,
   priority: true,
 });
 const legacyColonySchema = baseColonySchema
-  .omit({ infrastructure: true, networks: true, networkRulesVersion: true })
+  .omit({
+    infrastructure: true,
+    networks: true,
+    networkRulesVersion: true,
+    residents: true,
+    nextResidentId: true,
+    immigration: true,
+  })
   .extend({
     schemaVersion: z.literal(2),
     buildings: z.array(legacyBuildingSchema).max(400),
@@ -863,15 +963,29 @@ export function loadSave(value: unknown): ColonyState {
   const version = z
     .object({ schemaVersion: z.number() })
     .parse(value).schemaVersion;
-  if (version === 3) {
+  if (version === 4) {
     const state = baseColonySchema.parse(value);
+    return colonySchema.parse(refreshNetworks(state));
+  }
+  if (version === 3) {
+    const legacy = version3Schema.parse(value);
+    const state: ColonyState = {
+      ...legacy,
+      schemaVersion: 4,
+      residents: createResidents(legacy),
+      nextResidentId: legacy.population + 1,
+      immigration: initialImmigration(legacy.tick),
+    };
     return colonySchema.parse(refreshNetworks(state));
   }
   if (version === 2) {
     const legacy = legacyColonySchema.parse(value);
     const state: ColonyState = {
       ...legacy,
-      schemaVersion: 3,
+      schemaVersion: 4,
+      residents: [],
+      nextResidentId: legacy.population + 1,
+      immigration: initialImmigration(legacy.tick),
       networkRulesVersion: 1,
       infrastructure: [],
       networks: [],
@@ -881,6 +995,7 @@ export function loadSave(value: unknown): ColonyState {
         priority: buildingDefinitions[b.type].priority,
       })),
     };
+    state.residents = createResidents(state);
     if (state.phase === 'active') {
       distributeCargo(state);
       state.infrastructure = starterInfrastructure(state.buildings);
