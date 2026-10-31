@@ -147,7 +147,7 @@ test('port removal immediately disconnects a habitat and network overlays reflec
   );
   await page.getByRole('button', { name: 'Pause', exact: true }).click();
   const stored = await saved(page);
-  expect(stored.schemaVersion).toBe(4);
+  expect(stored.schemaVersion).toBe(5);
   expect(stored.telemetry.unmet.water).toBeGreaterThan(0);
   await page
     .getByRole('spinbutton', { name: 'Power priority', exact: true })

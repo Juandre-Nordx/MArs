@@ -34,6 +34,7 @@ import { NetworkInspector, connectionLabels } from './NetworkInspector';
 import { ResidentsPanel } from './ResidentsPanel';
 import { ColonistInspector } from './ColonistInspector';
 import { World } from './World';
+import { WorldNavigator } from './WorldNavigator';
 import './style.css';
 const SAVE_KEY = 'mars-first-colony-save';
 const categories: Category[] = ['Housing', 'Life support', 'Power', 'Storage'];
@@ -52,6 +53,7 @@ function App() {
   }, []);
   const [tile, setTile] = useState<Tile | null>(null);
   const [hover, setHover] = useState<Tile | null>(null);
+  const [focus, setFocus] = useState<Tile | null>(null);
   const [mission, setMission] = useState(0);
   const [construction, setConstruction] = useState<BuildingType | null>(null);
   const constructionRef = useRef(construction);
@@ -155,6 +157,7 @@ function App() {
       const body: unknown = await response.json();
       const state = colonySchema.parse((body as { colony?: unknown }).colony);
       publish(state, true);
+      setFocus(null);
       setMission((value) => value + 1);
       setSelectedResidentId(null);
       setTile(null);
@@ -185,6 +188,7 @@ function App() {
       if (!value) throw new Error('No browser save found');
       const state = loadSave(JSON.parse(value));
       publish(state, true);
+      setFocus(null);
       setMission((value) => value + 1);
       setSelectedResidentId(null);
       setTile(null);
@@ -357,7 +361,7 @@ function App() {
               <option value="power">Electrical network</option>
               <option value="road">Road network</option>
             </select>
-            <small>v0.2.2.3 · Temporary procedural artwork</small>
+            <small>v0.3.1 Phase 1 · Temporary procedural artwork</small>
           </label>
           <World
             colony={colony}
@@ -371,6 +375,7 @@ function App() {
             onRoute={setDraft}
             onCancel={cancelPlacement}
             mission={mission}
+            focus={focus}
             selected={tile}
             construction={construction}
             onSelect={select}
@@ -544,6 +549,18 @@ function App() {
               </p>
             </section>
           ) : null}
+          {colony && (
+            <WorldNavigator
+              colony={colony}
+              selected={tile}
+              onFocus={(value) => {
+                cancelPlacement();
+                setSelectedResidentId(null);
+                setTile(value);
+                setFocus(value);
+              }}
+            />
+          )}
           {colony?.phase === 'active' && (
             <ResidentsPanel
               colony={colony}

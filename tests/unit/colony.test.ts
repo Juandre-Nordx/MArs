@@ -96,7 +96,7 @@ describe('terrain and deployment', () => {
       inventory: { water: 33, oxygen: 24, metal: 8 },
     };
     const migrated = loadSave(legacy);
-    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.schemaVersion).toBe(5);
     expect(migrated.tick).toBe(42);
     expect(migrated.inventory).toEqual({
       ...emptyStock(),
@@ -107,7 +107,7 @@ describe('terrain and deployment', () => {
     expect(() =>
       loadSave({ ...legacy, inventory: { ...legacy.inventory, water: -1 } }),
     ).toThrow();
-    expect(() => loadSave({ ...active(), schemaVersion: 5 })).toThrow();
+    expect(() => loadSave({ ...active(), schemaVersion: 999 })).toThrow();
     expect(() =>
       loadSave({ ...newGame(), landingZone: { x: 99, y: 99 } }),
     ).toThrow();

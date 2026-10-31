@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { LEGACY_WORLD_SIZE } from './catalog.js';
 import {
   buildingDefinitions,
   populationRates,
@@ -37,7 +38,7 @@ export const residentSchema = z
     homeId: z.string().nullable(),
     position: tileSchema,
     previousPosition: tileSchema,
-    route: z.array(tileSchema).max(400),
+    route: z.array(tileSchema).max(16384),
     destinationId: z.string().nullable(),
     activity: z.enum(['walking', 'resting', 'waiting']),
     waitTicks: z.number().int().min(0).max(100),
@@ -56,7 +57,7 @@ export const immigrationSchema = z
         homeId: z.string(),
         position: tileSchema,
         previousPosition: tileSchema,
-        route: z.array(tileSchema).max(400),
+        route: z.array(tileSchema).max(16384),
         exit: tileSchema,
         phase: z.enum(['arriving', 'departing']),
       })
@@ -102,10 +103,49 @@ export function walkingPath(
     return null;
   const costs = new Map([[tileKey(from), 0]]),
     parents = new Map<string, Tile>(),
-    queue = [{ ...from, cost: 0 }];
+    queue: (Tile & { cost: number; priority: number })[] = [];
+  const less = (a: (typeof queue)[number], b: (typeof queue)[number]) =>
+    a.priority - b.priority || b.cost - a.cost || a.y - b.y || a.x - b.x;
+  const push = (p: Tile & { cost: number }) => {
+    const node = {
+      ...p,
+      priority:
+        p.cost +
+        (roads.size ? 1 : 3) * (Math.abs(p.x - to.x) + Math.abs(p.y - to.y)),
+    };
+    queue.push(node);
+    let i = queue.length - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (less(queue[parent]!, node) <= 0) break;
+      queue[i] = queue[parent]!;
+      i = parent;
+    }
+    queue[i] = node;
+  };
+  const pop = () => {
+    const first = queue[0]!,
+      last = queue.pop()!;
+    if (queue.length) {
+      let i = 0;
+      while (i * 2 + 1 < queue.length) {
+        let child = i * 2 + 1;
+        if (
+          child + 1 < queue.length &&
+          less(queue[child + 1]!, queue[child]!) < 0
+        )
+          child++;
+        if (less(last, queue[child]!) <= 0) break;
+        queue[i] = queue[child]!;
+        i = child;
+      }
+      queue[i] = last;
+    }
+    return first;
+  };
+  push({ ...from, cost: 0 });
   while (queue.length) {
-    queue.sort((a, b) => a.cost - b.cost || a.y - b.y || a.x - b.x);
-    const current = queue.shift()!;
+    const current = pop();
     if (current.cost !== costs.get(tileKey(current))) continue;
     if (current.x === to.x && current.y === to.y) {
       const result: Tile[] = [];
@@ -123,7 +163,7 @@ export function walkingPath(
       if (cost < (costs.get(key) ?? Infinity)) {
         costs.set(key, cost);
         parents.set(key, current);
-        queue.push({ ...next, cost });
+        push({ ...next, cost });
       }
     }
   }
@@ -320,17 +360,19 @@ function entryPath(
   target: Tile,
 ): { entry: Tile; route: Tile[] } | null {
   const entries: Tile[] = [];
-  for (let i = 0; i < WORLD_SIZE; i++)
+  // Immigration enters from the original landing staging perimeter, not 512 tiles away.
+  const edge = LEGACY_WORLD_SIZE - 1;
+  for (let i = 0; i <= edge; i++)
     entries.push(
       { x: 0, y: i },
-      { x: WORLD_SIZE - 1, y: i },
+      { x: edge, y: i },
       { x: i, y: 0 },
-      { x: i, y: WORLD_SIZE - 1 },
+      { x: i, y: edge },
     );
   entries.sort(
     (a, b) =>
-      Number(!(a.x === 0 && a.y === WORLD_SIZE - 1)) -
-        Number(!(b.x === 0 && b.y === WORLD_SIZE - 1)) ||
+      Number(!(a.x === 0 && a.y === edge)) -
+        Number(!(b.x === 0 && b.y === edge)) ||
       Math.abs(a.x - target.x) +
         Math.abs(a.y - target.y) -
         Math.abs(b.x - target.x) -

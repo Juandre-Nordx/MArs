@@ -1,10 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { ActorRenderer } from './actors';
+import { visibleChunks, nearViewport } from './viewport';
 import Phaser from 'phaser';
 import {
   buildingDefinitions,
   footprint,
-  generateTerrain,
+  generateChunk,
+  CHUNK_SIZE,
+  isExplored,
+  chunkKey,
   infrastructureDefinitions,
   adjacent,
   cells,
@@ -29,6 +33,7 @@ import { tileToWorld, worldToTile, WORLD_SIZE } from './iso';
 type Props = {
   colony: ColonyState | null;
   mission: number;
+  focus: Tile | null;
   selected: Tile | null;
   construction: BuildingType | null;
   view: InfrastructureType | 'normal';
@@ -66,7 +71,12 @@ export function World(props: Props) {
       private infrastructureSignature = '';
       private infrastructureRef: Segment[] | null = null;
       private faults!: Phaser.GameObjects.Graphics;
-      private terrain!: Phaser.GameObjects.Graphics;
+      private terrainChunks = new Map<
+        string,
+        { graphics: Phaser.GameObjects.Graphics; state: unknown }
+      >();
+      private cameraSignature = '';
+      private focus: Tile | null = null;
       private structures!: Phaser.GameObjects.Graphics;
       private overlay!: Phaser.GameObjects.Graphics;
       private ship!: Phaser.GameObjects.Graphics;
@@ -81,12 +91,18 @@ export function World(props: Props) {
         this.specs = installBuildingSprites(this);
         installInfrastructureSprites(this);
         this.input.mouse?.disableContextMenu();
-        this.terrain = this.add.graphics().setDepth(-20000);
+
         this.structures = this.add.graphics();
         this.faults = this.add.graphics().setDepth(9999);
         this.overlay = this.add.graphics().setDepth(10000);
         this.ship = this.add.graphics().setDepth(10001);
         const camera = this.cameras.main;
+        camera.setBounds(
+          -WORLD_SIZE * 32 - 64,
+          -96,
+          WORLD_SIZE * 64 + 128,
+          WORLD_SIZE * 32 + 192,
+        );
         camera.setBackgroundColor('#21191a');
         camera.centerOn(0, 300);
         let startX = 0;
@@ -201,59 +217,139 @@ export function World(props: Props) {
         );
       }
       private drawTerrain(seed: number, colony: ColonyState | null) {
-        this.terrain.clear();
-        for (const tile of generateTerrain(seed)) {
-          const p = tileToWorld(tile.x, tile.y);
-          const colors = {
-            dust: [0x874735, 0x934c36, 0x9a523a],
-            sand: [0xa96542, 0xb16b46, 0xa55f3e],
-            basalt: [0x64504a, 0x70554b, 0x765d50],
-          };
-          this.terrain
-            .fillStyle(colors[tile.texture][tile.shade]!)
-            .fillPoints(diamond(p.x, p.y), true);
-          this.terrain
-            .lineStyle(1, 0xc78158, 0.18)
-            .strokePoints(diamond(p.x, p.y), true);
-          // Decorative surface details do not enter collision or accessibility data.
-          const nearLanding =
-            colony &&
-            Math.abs(tile.x - colony.landingZone.x) <= 2 &&
-            Math.abs(tile.y - colony.landingZone.y) <= 2;
-          if (
-            !nearLanding &&
-            (tile.decoration === 'rock' || tile.decoration === 'boulder')
-          ) {
-            const size = tile.decoration === 'boulder' ? 8 : 4;
-            this.terrain
-              .fillStyle(0x332c2a, 0.4)
-              .fillEllipse(p.x + 3, p.y + 4, size * 3, size);
-            this.terrain
-              .fillStyle(0x796459)
-              .fillTriangle(
-                p.x - size,
-                p.y + 1,
-                p.x,
-                p.y - size,
-                p.x + size,
-                p.y + 2,
-              );
-            this.terrain
-              .lineStyle(1, 0xc39b7e)
-              .lineBetween(p.x - size, p.y + 1, p.x, p.y - size);
-          } else if (tile.decoration === 'ripples') {
-            this.terrain
-              .lineStyle(1, 0xd08e64, 0.45)
-              .lineBetween(p.x - 12, p.y + 2, p.x + 2, p.y - 5)
-              .lineBetween(p.x - 2, p.y + 6, p.x + 12, p.y - 1);
+        const wanted = visibleChunks(this.cameras.main.worldView),
+          keys = new Set(wanted.map((c) => chunkKey(c.x, c.y)));
+        for (const [key, entry] of this.terrainChunks)
+          if (!keys.has(key)) {
+            entry.graphics.destroy();
+            this.terrainChunks.delete(key);
+          }
+        let tileCount = 0;
+        for (const c of wanted) {
+          const key = chunkKey(c.x, c.y),
+            state = colony?.world.chunks[key];
+          const cached = this.terrainChunks.get(key);
+          if (cached && cached.state === state) {
+            tileCount += state?.explored.length ? CHUNK_SIZE * CHUNK_SIZE : 0;
+            continue;
+          }
+          cached?.graphics.destroy();
+          const graphics = this.add.graphics().setDepth(-20000);
+          this.terrainChunks.set(key, { graphics, state });
+          if (!state?.explored.length) {
+            const corners = [
+              { x: c.x * CHUNK_SIZE - 0.5, y: c.y * CHUNK_SIZE - 0.5 },
+              { x: (c.x + 1) * CHUNK_SIZE - 0.5, y: c.y * CHUNK_SIZE - 0.5 },
+              {
+                x: (c.x + 1) * CHUNK_SIZE - 0.5,
+                y: (c.y + 1) * CHUNK_SIZE - 0.5,
+              },
+              { x: c.x * CHUNK_SIZE - 0.5, y: (c.y + 1) * CHUNK_SIZE - 0.5 },
+            ].map((t) => tileToWorld(t.x, t.y));
+            graphics
+              .fillStyle(0x29252c)
+              .fillPoints(corners, true)
+              .lineStyle(1, 0x3b343c)
+              .strokePoints(corners, true);
+            continue;
+          }
+          tileCount += CHUNK_SIZE * CHUNK_SIZE;
+          for (const tile of generateChunk(seed, c.x, c.y)) {
+            const explored = !!colony && isExplored(colony.world, tile);
+            const p = tileToWorld(tile.x, tile.y);
+            const colors = {
+              dust: [0x874735, 0x934c36, 0x9a523a],
+              sand: [0xa96542, 0xb16b46, 0xa55f3e],
+              basalt: [0x64504a, 0x70554b, 0x765d50],
+            };
+            graphics
+              .fillStyle(
+                !explored
+                  ? 0x29252c
+                  : tile.region === 'ice-bearing'
+                    ? [0x8b969b, 0xa2a9a8, 0x768a94][tile.shade]!
+                    : tile.region === 'rocky-highlands'
+                      ? [0x5f4c48, 0x6c5753, 0x786058][tile.shade]!
+                      : tile.region === 'crater-fields'
+                        ? [0x744335, 0x824b39, 0x693f35][tile.shade]!
+                        : colors[tile.texture][tile.shade]!,
+              )
+              .fillPoints(diamond(p.x, p.y), true);
+            graphics
+              .lineStyle(1, 0xc78158, 0.18)
+              .strokePoints(diamond(p.x, p.y), true);
+            if (!explored) continue;
+            // Decorative surface details do not enter collision or accessibility data.
+            const nearLanding =
+              colony &&
+              Math.abs(tile.x - colony.landingZone.x) <= 2 &&
+              Math.abs(tile.y - colony.landingZone.y) <= 2;
+            if (
+              !nearLanding &&
+              (tile.decoration === 'rock' || tile.decoration === 'boulder')
+            ) {
+              const size = tile.decoration === 'boulder' ? 8 : 4;
+              graphics
+                .fillStyle(0x332c2a, 0.4)
+                .fillEllipse(p.x + 3, p.y + 4, size * 3, size);
+              graphics
+                .fillStyle(0x796459)
+                .fillTriangle(
+                  p.x - size,
+                  p.y + 1,
+                  p.x,
+                  p.y - size,
+                  p.x + size,
+                  p.y + 2,
+                );
+              graphics
+                .lineStyle(1, 0xc39b7e)
+                .lineBetween(p.x - size, p.y + 1, p.x, p.y - size);
+            } else if (tile.decoration === 'crater') {
+              graphics
+                .fillStyle(0x352b2b, 0.55)
+                .fillEllipse(p.x, p.y, 40, 18)
+                .lineStyle(2, 0x9d7158)
+                .strokeEllipse(p.x, p.y, 42, 20);
+            } else if (tile.decoration === 'ice') {
+              graphics
+                .fillStyle(0xc5dadd, 0.7)
+                .fillTriangle(
+                  p.x - 14,
+                  p.y + 2,
+                  p.x + 2,
+                  p.y - 8,
+                  p.x + 16,
+                  p.y + 1,
+                );
+            } else if (tile.decoration === 'ripples') {
+              graphics
+                .lineStyle(1, 0xd08e64, 0.45)
+                .lineBetween(p.x - 12, p.y + 2, p.x + 2, p.y - 5)
+                .lineBetween(p.x - 2, p.y + 6, p.x + 12, p.y - 1);
+            }
           }
         }
+        host.current?.setAttribute(
+          'data-terrain-chunks',
+          String(this.terrainChunks.size),
+        );
+        host.current?.setAttribute('data-terrain-tiles', String(tileCount));
+        host.current?.setAttribute(
+          'data-building-sprites',
+          String(this.buildingImages.length),
+        );
+        host.current?.setAttribute(
+          'data-infrastructure-sprites',
+          String(this.infrastructureImages.length),
+        );
       }
       private drawBuildings(colony: ColonyState) {
         for (const image of this.buildingImages) image.destroy();
         this.buildingImages = [];
         this.structures.clear();
         for (const b of colony.buildings) {
+          if (!nearViewport(b, this.cameras.main.worldView, 192)) continue;
           const p = tileToWorld(b.x, b.y),
             spec = this.specs[b.type];
           const image = this.add
@@ -304,6 +400,7 @@ export function World(props: Props) {
           colony.infrastructure.filter(isUsable).map((s) => s.id),
         );
         for (const segment of colony.infrastructure) {
+          if (!nearViewport(segment, this.cameras.main.worldView)) continue;
           const p = tileToWorld(segment.x, segment.y);
           let mask = 0;
           for (const [i, tile] of adjacent(segment).entries())
@@ -379,17 +476,37 @@ export function World(props: Props) {
           this.faults.clear();
           this.landed = false;
           this.landingStarted = time;
-          this.drawTerrain(this.seed, colony);
+          for (const entry of this.terrainChunks.values())
+            entry.graphics.destroy();
+          this.terrainChunks.clear();
+          this.cameraSignature = '';
           if (colony) {
             const p = tileToWorld(colony.landingZone.x, colony.landingZone.y);
             this.cameras.main.centerOn(p.x, p.y);
           }
         }
+        if (latest.current.focus && this.focus !== latest.current.focus) {
+          this.focus = latest.current.focus;
+          const p = tileToWorld(this.focus.x, this.focus.y);
+          this.cameras.main.centerOn(p.x, p.y);
+        }
+        // worldView is refreshed by Phaser after camera changes; cache graphics per visible chunk.
+        const camera = this.cameras.main;
+        const cameraSignature = [
+          Math.floor(camera.worldView.x / 32),
+          Math.floor(camera.worldView.y / 16),
+          camera.zoom,
+          camera.width,
+          camera.height,
+        ].join(':');
+        const cameraChanged = cameraSignature !== this.cameraSignature;
+        this.cameraSignature = cameraSignature;
+        this.drawTerrain(this.seed, colony);
         const signature = JSON.stringify(
           colony?.buildings.map((b) => [b.id, b.status, b.enabled, b.health]) ??
             [],
         );
-        if (signature !== this.signature) {
+        if (cameraChanged || signature !== this.signature) {
           this.signature = signature;
           this.structures.clear();
           if (colony) this.drawBuildings(colony);
@@ -402,7 +519,8 @@ export function World(props: Props) {
         ]);
         if (
           colony &&
-          (colony.infrastructure !== this.infrastructureRef ||
+          (cameraChanged ||
+            colony.infrastructure !== this.infrastructureRef ||
             infrastructureSignature !== this.infrastructureSignature)
         ) {
           this.infrastructureRef = colony.infrastructure;

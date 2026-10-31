@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { newWorld, worldSchema, isExplored } from './world.js';
 import {
   buildingDefinitions,
   buildingTypeSchema,
@@ -46,7 +47,7 @@ import {
   initialImmigration,
   residentSchema,
 } from './people.js';
-export const SCHEMA_VERSION = 4 as const;
+export const SCHEMA_VERSION = 5 as const;
 export const STEP_MS = 1000;
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const buildingSchema = z
@@ -99,6 +100,7 @@ const baseColonySchema = z
   .object({
     schemaVersion: z.literal(SCHEMA_VERSION),
     seed: integer,
+    world: worldSchema,
     tick: integer,
     name: z.string().min(1).max(64),
     inventory: stockSchema,
@@ -153,31 +155,44 @@ export function accessible(buildings: Building[]): boolean {
   const occupied = new Set(
     buildings.flatMap((b) => footprint(b.type, b).map((t) => `${t.x},${t.y}`)),
   );
-  const entry = Array.from({ length: WORLD_SIZE }, (_, x) => ({ x, y: 0 }))
-    .concat(Array.from({ length: WORLD_SIZE }, (_, y) => ({ x: 0, y })))
-    .find((t) => !occupied.has(`${t.x},${t.y}`));
-  if (!entry) return buildings.length === 0;
-  const queue: Tile[] = [entry];
+  if (!buildings.length) return true;
+  // Outside the occupied bounding rectangle, all terrain is traversable.
+  // Flood only this rectangle plus a one-tile boundary, rather than 262,144 tiles.
+  const all = buildings.flatMap((b) => footprint(b.type, b));
+  const minX = Math.max(0, Math.min(...all.map((t) => t.x)) - 1),
+    minY = Math.max(0, Math.min(...all.map((t) => t.y)) - 1),
+    maxX = Math.min(WORLD_SIZE - 1, Math.max(...all.map((t) => t.x)) + 1),
+    maxY = Math.min(WORLD_SIZE - 1, Math.max(...all.map((t) => t.y)) + 1);
+  const queue: Tile[] = [];
   const reached = new Set<string>();
-  for (let i = 0; i < queue.length; i++) {
-    const cell = queue[i]!;
-    const key = `${cell.x},${cell.y}`;
+  const enqueue = (x: number, y: number) => {
+    const key = `${x},${y}`;
     if (
-      cell.x < 0 ||
-      cell.y < 0 ||
-      cell.x >= WORLD_SIZE ||
-      cell.y >= WORLD_SIZE ||
+      x < minX ||
+      x > maxX ||
+      y < minY ||
+      y > maxY ||
       reached.has(key) ||
       occupied.has(key)
     )
-      continue;
+      return;
     reached.add(key);
-    queue.push(
-      { x: cell.x + 1, y: cell.y },
-      { x: cell.x - 1, y: cell.y },
-      { x: cell.x, y: cell.y + 1 },
-      { x: cell.x, y: cell.y - 1 },
-    );
+    queue.push({ x, y });
+  };
+  for (let x = minX; x <= maxX; x++) {
+    enqueue(x, minY);
+    enqueue(x, maxY);
+  }
+  for (let y = minY; y <= maxY; y++) {
+    enqueue(minX, y);
+    enqueue(maxX, y);
+  }
+  for (let i = 0; i < queue.length; i++) {
+    const { x, y } = queue[i]!;
+    enqueue(x + 1, y);
+    enqueue(x - 1, y);
+    enqueue(x, y + 1);
+    enqueue(x, y - 1);
   }
   return buildings.every((b) =>
     footprint(b.type, b).some((t) =>
@@ -302,6 +317,8 @@ export const colonySchema = baseColonySchema.superRefine((state, context) => {
     if (
       segment.id !== segmentId(segment.type, segment) ||
       segmentIds.has(segment.id) ||
+      segment.x >= WORLD_SIZE ||
+      segment.y >= WORLD_SIZE ||
       buildingAt(state, segment) ||
       segment.paidMetal > infrastructureDefinitions[segment.type].metal
     )
@@ -397,6 +414,7 @@ export function newGame(seed = 1): ColonyState {
   return colonySchema.parse({
     schemaVersion: SCHEMA_VERSION,
     seed,
+    world: newWorld(seed),
     tick: 0,
     name: 'First Colony',
     inventory: { ...landingCargo },
@@ -473,6 +491,8 @@ export function placement(
     )
   )
     return { valid: false, reason: 'Outside map boundary' };
+  if (footprint(type, tile).some((cell) => !isExplored(state.world, cell)))
+    return { valid: false, reason: 'Explore this terrain before building' };
   if (footprint(type, tile).some((cell) => buildingAt(state, cell)))
     return { valid: false, reason: 'Building footprint is occupied' };
   if (
@@ -940,7 +960,12 @@ export function alerts(state: ColonyState): string[] {
   return result;
 }
 const version3Schema = baseColonySchema
-  .omit({ residents: true, nextResidentId: true, immigration: true })
+  .omit({
+    residents: true,
+    nextResidentId: true,
+    immigration: true,
+    world: true,
+  })
   .extend({ schemaVersion: z.literal(3), networkRulesVersion: z.literal(1) });
 const legacyBuildingSchema = buildingSchema.omit({
   stores: true,
@@ -948,6 +973,7 @@ const legacyBuildingSchema = buildingSchema.omit({
 });
 const legacyColonySchema = baseColonySchema
   .omit({
+    world: true,
     infrastructure: true,
     networks: true,
     networkRulesVersion: true,
@@ -963,7 +989,7 @@ export function loadSave(value: unknown): ColonyState {
   const version = z
     .object({ schemaVersion: z.number() })
     .parse(value).schemaVersion;
-  if (version === 4) {
+  if (version === 5) {
     const parsed = baseColonySchema
       .extend({
         networkRulesVersion: z.union([
@@ -977,11 +1003,34 @@ export function loadSave(value: unknown): ColonyState {
     const state: ColonyState = { ...parsed, networkRulesVersion: 4 };
     return colonySchema.parse(refreshNetworks(state));
   }
+  if (version === 4) {
+    const parsed = baseColonySchema
+      .omit({ world: true })
+      .extend({
+        schemaVersion: z.literal(4),
+        networkRulesVersion: z.union([
+          z.literal(1),
+          z.literal(2),
+          z.literal(3),
+          z.literal(4),
+        ]),
+      })
+      .parse(value);
+    return colonySchema.parse(
+      refreshNetworks({
+        ...parsed,
+        schemaVersion: SCHEMA_VERSION,
+        networkRulesVersion: 4,
+        world: newWorld(parsed.seed),
+      }),
+    );
+  }
   if (version === 3) {
     const legacy = version3Schema.parse(value);
     const state: ColonyState = {
       ...legacy,
-      schemaVersion: 4,
+      schemaVersion: SCHEMA_VERSION,
+      world: newWorld(legacy.seed),
       networkRulesVersion: 4,
       residents: createResidents(legacy),
       nextResidentId: legacy.population + 1,
@@ -993,7 +1042,8 @@ export function loadSave(value: unknown): ColonyState {
     const legacy = legacyColonySchema.parse(value);
     const state: ColonyState = {
       ...legacy,
-      schemaVersion: 4,
+      schemaVersion: SCHEMA_VERSION,
+      world: newWorld(legacy.seed),
       residents: [],
       nextResidentId: legacy.population + 1,
       immigration: initialImmigration(legacy.tick),

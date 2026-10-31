@@ -514,3 +514,33 @@ nav {
   font-weight: 600;
   color: #b3d6c6;
 }
+
+.world-navigation svg {
+  width: 100%;
+  height: 110px;
+  border: 1px solid #454344;
+  margin-bottom: 8px;
+}
+.world-navigation form {
+  display: flex;
+  gap: 6px;
+  align-items: end;
+  margin-bottom: 8px;
+}
+.world-navigation label {
+  flex: 1;
+  min-width: 0;
+}
+.world-navigation input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  background: #242b2c;
+  border: 1px solid #4d5858;
+  color: #eee;
+  padding: 5px;
+}
+.world-navigation small {
+  display: block;
+  margin-top: 8px;
+}

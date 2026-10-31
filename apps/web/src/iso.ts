@@ -1,6 +1,6 @@
 export const TILE_WIDTH = 64;
 export const TILE_HEIGHT = 32;
-export const WORLD_SIZE = 20;
+export { WORLD_SIZE } from '../../../packages/simulation/src/dimensions.js';
 export function tileToWorld(x: number, y: number) {
   return { x: ((x - y) * TILE_WIDTH) / 2, y: ((x + y) * TILE_HEIGHT) / 2 };
 }

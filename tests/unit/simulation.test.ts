@@ -40,7 +40,7 @@ describe('deterministic simulation', () => {
     expect(() =>
       advance({ colony: newGame(), remainderMs: 0 }, Infinity),
     ).toThrow();
-    expect(() => loadSave({ ...newGame(), schemaVersion: 5 })).toThrow();
+    expect(() => loadSave({ ...newGame(), schemaVersion: 999 })).toThrow();
     expect(loadSave(JSON.parse(JSON.stringify(newGame())))).toEqual(newGame());
   });
 });

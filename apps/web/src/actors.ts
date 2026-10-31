@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import type { ColonyState, Tile } from '@mars/simulation';
 import { tileToWorld } from './iso';
+import { nearViewport } from './viewport';
 export function installActorSprites(scene: Phaser.Scene) {
   for (let frame = 0; frame < 2; frame++) {
     const g = scene.add.graphics(),
@@ -134,6 +135,7 @@ export class ActorRenderer {
       texture: string,
       buggy = false,
     ) => {
+      if (!nearViewport(position, this.scene.cameras.main.worldView)) return;
       ids.add(id);
       let image = this.images.get(id);
       if (!image) {

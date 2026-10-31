@@ -1,5 +1,5 @@
 import { z } from 'zod';
-export const WORLD_SIZE = 20;
+export { WORLD_SIZE, CHUNK_SIZE, LEGACY_WORLD_SIZE } from './dimensions.js';
 export const SOL_TICKS = 240;
 export const resourceDefinitions = {
   water: { label: 'Water', unit: 'kg' },
