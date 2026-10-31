@@ -114,19 +114,12 @@ export function port(
   const offset = buildingDefinitions[building.type].ports[type];
   return offset ? { x: building.x + offset.x, y: building.y + offset.y } : null;
 }
-// Resource pipes and roads attach to cardinal footprint edges; power retains its explicit port.
+// Utilities and roads attach to compatible cardinal footprint edges.
 export function connectionTiles(
   building: NetworkBuilding,
   type: InfrastructureType,
 ): Tile[] {
-  if (type === 'power') {
-    const tile = port(building, type);
-    return tile ? [tile] : [];
-  }
-  if (
-    (type === 'water' || type === 'oxygen') &&
-    !buildingDefinitions[building.type].ports[type]
-  )
+  if (type !== 'road' && !buildingDefinitions[building.type].ports[type])
     return [];
   const footprint = new Set(cells(building).map(tileKey));
   return [
@@ -155,7 +148,7 @@ export function rebuildNetworks(state: NetworkState): Network[] {
       .sort((a, b) => a.y - b.y || a.x - b.x);
     const byTile = new Map(segments.map((s) => [tileKey(s), s]));
     const manifolds = new Map<string, Set<string>>();
-    if (type === 'water' || type === 'oxygen')
+    if (type !== 'road')
       for (const building of state.buildings) {
         const contacts = connectionTiles(building, type)
           .map((t) => byTile.get(tileKey(t)))

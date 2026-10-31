@@ -230,11 +230,20 @@ describe('topology and conservation', () => {
     const segment = s.infrastructure.find(
       (i) => i.type === 'power' && i.x === tile.x && i.y === tile.y,
     )!;
-    const off = toggleSegment(s, segment.id);
+    const contacts = new Set(
+      connectionTiles(h, 'power').map((t) => `power:${t.x},${t.y}`),
+    );
+    const isolated = refreshNetworks({
+      ...s,
+      infrastructure: s.infrastructure.filter(
+        (i) => i.id === segment.id || !contacts.has(i.id),
+      ),
+    });
+    const off = toggleSegment(isolated, segment.id);
     expect(networkFor(off.networks, h.id, 'power')).toBeUndefined();
     const broken = refreshNetworks({
-      ...s,
-      infrastructure: s.infrastructure.map((i) =>
+      ...isolated,
+      infrastructure: isolated.infrastructure.map((i) =>
         i.id === segment.id ? { ...i, health: 0 } : i,
       ),
     });

@@ -71,5 +71,5 @@ test('a home uses side-only oxygen and reports both adjacent road components', a
     JSON.parse(localStorage.getItem('mars-first-colony-save')!),
   );
   expect(saved.inventory.oxygen).toBe(100);
-  expect(saved.networkRulesVersion).toBe(3);
+  expect(saved.networkRulesVersion).toBe(4);
 });

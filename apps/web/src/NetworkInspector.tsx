@@ -6,7 +6,6 @@ import {
   infrastructureDefinitions,
   infrastructureTypeSchema,
   networkFor,
-  port,
   segmentId,
   setPowerPriority,
   toggleSegment,
@@ -63,18 +62,20 @@ export function NetworkInspector({
         </label>
       )}
       {infrastructureTypeSchema.options.map((type) => {
+        const contacts = building ? connectionTiles(building, type) : [];
         const endpoint = building
-          ? type !== 'power'
-            ? (connectionTiles(building, type).find((t) =>
-                colony.infrastructure.some(
-                  (s) =>
-                    s.type === type &&
-                    s.x === t.x &&
-                    s.y === t.y &&
-                    isUsable(s),
-                ),
-              ) ?? port(building, type))
-            : port(building, type)
+          ? (contacts.find((t) =>
+              colony.infrastructure.some(
+                (s) =>
+                  s.type === type && s.x === t.x && s.y === t.y && isUsable(s),
+              ),
+            ) ??
+            contacts.find((t) =>
+              colony.infrastructure.some(
+                (s) => s.type === type && s.x === t.x && s.y === t.y,
+              ),
+            ) ??
+            contacts[0])
           : tile;
         if (!endpoint) return null;
         const network = building
@@ -112,9 +113,8 @@ export function NetworkInspector({
             </p>
             {building && (
               <small>
-                {type !== 'power' ? 'Automatic contact' : 'Port'}: {endpoint.x},{' '}
-                {endpoint.y} ·{' '}
-                {type !== 'power' ? 'any directly adjacent side' : 'north side'}
+                Automatic contact: {endpoint.x}, {endpoint.y} · any directly
+                adjacent side
               </small>
             )}
             {network && (

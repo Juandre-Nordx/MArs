@@ -357,7 +357,7 @@ function App() {
               <option value="power">Electrical network</option>
               <option value="road">Road network</option>
             </select>
-            <small>v0.2.2.2 · Temporary procedural artwork</small>
+            <small>v0.2.2.3 · Temporary procedural artwork</small>
           </label>
           <World
             colony={colony}
@@ -692,8 +692,8 @@ function App() {
               Demolish tool
             </button>
             <span>
-              Layers can cross on free terrain. Water, oxygen and roads connect
-              on any side; power ports face north.
+              Layers can cross on free terrain. Pipes, cables and roads connect
+              directly beside any building side.
             </span>
           </div>
         )}

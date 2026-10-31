@@ -109,7 +109,7 @@ describe('adjacent oxygen and road access', () => {
     const s = active();
     for (const version of [1, 2]) {
       const next = loadSave({ ...s, networkRulesVersion: version });
-      expect(next.networkRulesVersion).toBe(3);
+      expect(next.networkRulesVersion).toBe(4);
       expect(next.inventory).toEqual(s.inventory);
       expect(next.infrastructure).toEqual(s.infrastructure);
       expect(next.residents).toEqual(s.residents);

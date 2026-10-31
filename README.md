@@ -1,16 +1,16 @@
-# MARS: FIRST COLONY — v0.2.2.2
+# MARS: FIRST COLONY — v0.2.2.3
 
 An original browser-based isometric Mars colony prototype. Stage 2 extends the existing Stage 1 code; Phaser projection/camera controls, React/Vite, Fastify, npm workspaces and Railway configuration are preserved.
 
-## Automatic oxygen and road access
+## Automatic utility connections
 
-Water and oxygen pipes connect automatically directly beside any cardinal side of compatible buildings. Roads also attach to any footprint edge; the inspector now reports actual side contacts and all adjacent road components. Oxygen branches share one manifold without duplicating tank reserves. Existing saves migrate safely to network rules version 3. [v0.2.2.2 details](docs/V0.2.2.2.md).
+Electrical cables now connect directly beside any cardinal side of a compatible building's full footprint, just like water and oxygen pipes. Companies, homes, solar arrays and batteries share power through these contacts. Multiple contacts on one building join its electrical bus without duplicating generation or stored energy. Diagonals and gaps do not connect. Roads also attach to any footprint edge; the inspector reports actual contacts and all adjacent road components. Existing saves migrate safely to network rules version 4. [v0.2.2.3 details](docs/V0.2.2.3.md).
 
 ## Colonist conversations and water hookups
 
 Click a suited colonist (or choose **Talk to Colonist N** in the resident roster) to hear what they appreciate, what worries them and what the colony needs. Original dialogue reflects real local utility connections, housing, food, power and reserve quantities; no invented happiness meter changes the economy.
 
-Water pipes now connect automatically along any cardinal side of a building footprint. Multi-sided branches share one manifold without duplicating water. Only power retains its north-side port; oxygen now auto-connects as well. Existing saves migrate to network rules version 2 without moving reserves or creating pipes. [v0.2.2.1 report](docs/V0.2.2.1.md).
+Water pipes now connect automatically along any cardinal side of a building footprint. Multi-sided branches share one manifold without duplicating water. Later updates extend automatic connections to oxygen and electricity. The original water update introduced network rules version 2 without moving reserves or creating pipes. [v0.2.2.1 report](docs/V0.2.2.1.md).
 
 ## Walking colonists and newcomers
 
@@ -20,7 +20,7 @@ Save schema 4 preserves people, routes and in-flight buggies; older saves migrat
 
 ## Preserved infrastructure
 
-Water/oxygen pipes, electrical cables and roads now occupy separate tile layers. Buildings use explicit ports and independent network components; physical tanks/batteries keep reserves when a network splits. The starter colony includes connected utility routes and roads. Drag routes, preview total costs, confirm or cancel, demolish with configured refunds, inspect network metrics and toggle network overlays. Original cached transparent sprites replace the earlier flat blocks; the UI clearly labels them as temporary procedural art.
+Water/oxygen pipes, electrical cables and roads now occupy separate tile layers. Compatible buildings use automatic perimeter contacts and independent network components; physical tanks/batteries keep reserves when a network splits. The starter colony includes connected utility routes and roads. Drag routes, preview total costs, confirm or cancel, demolish with configured refunds, inspect network metrics and toggle network overlays. Original cached transparent sprites replace the earlier flat blocks; the UI clearly labels them as temporary procedural art.
 
 The v0.2.1 foundation persists infrastructure, disabled/damaged segments, physical stores and power priorities. Version 2 colonies retain buildings/resources and receive a one-time compatibility network. See [v0.2.1 implementation and migration details](docs/V0.2.1.md).
 
@@ -76,7 +76,7 @@ Stop an existing development server before Playwright; its configuration owns th
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm run test:e2e
 ```
 
-Current validation: production workspace build, 81 Vitest tests, thirteen Chromium browser checks, lint and formatting passed. Coverage includes seeded maps, exact starter counts/accessibility, idempotent deployment/load, production/consumption accounting, power/worker starvation, capacity limits over 1,500 ticks, clock determinism/speeds, save migration, footprint selection, paid construction and the original economic/camera checks. Laptop layouts were inspected at 1366×768, 1280×720 and 1024×768 without horizontal overflow.
+Current validation: production workspace build, 88 Vitest tests, fourteen Chromium browser checks, lint and formatting passed. Coverage includes seeded maps, exact starter counts/accessibility, idempotent deployment/load, production/consumption accounting, power/worker starvation, capacity limits over 1,500 ticks, clock determinism/speeds, save migration, footprint selection, paid construction and the original economic/camera checks. Laptop layouts were inspected at 1366×768, 1280×720 and 1024×768 without horizontal overflow.
 
 For database/container verification when access is available:
 
@@ -87,7 +87,7 @@ curl --fail http://127.0.0.1:3001/api/ready
 docker compose up --build
 ```
 
-Stage 1 migration SQL was independently applied successfully to PostgreSQL 16. Prisma-managed migration/client integration and the full Docker application image remain unverified here due to the engine download restriction. v0.2.2.2 changes no database tables or deployment settings. Vite reports a large Phaser bundle warning; it does not fail the build.
+Stage 1 migration SQL was independently applied successfully to PostgreSQL 16. Prisma-managed migration/client integration and the full Docker application image remain unverified here due to the engine download restriction. v0.2.2.3 changes no database tables or deployment settings. Vite reports a large Phaser bundle warning; it does not fail the build.
 
 ## Architecture
 
@@ -103,7 +103,7 @@ Stage 1 migration SQL was independently applied successfully to PostgreSQL 16. P
 - `apps/web/src/NetworkInspector.tsx`: actual network observations and segment controls.
 - `apps/web/src/World.tsx`: Phaser terrain, placeholder buildings, landing animation and camera; it never edits colony state.
 - `apps/web/src/main.tsx`: React HUD, construction/inspection and clock adapter; every gameplay mutation calls simulation functions.
-- `apps/api`: compatible Fastify endpoints and the original Prisma schema/migration. `/api/new-game` now returns schema version 4 and `/api/health` identifies release 0.2.2.2.
+- `apps/api`: compatible Fastify endpoints and the original Prisma schema/migration. `/api/new-game` now returns schema version 4 and `/api/health` identifies release 0.2.2.3.
 
 ## Docker and Railway
 
