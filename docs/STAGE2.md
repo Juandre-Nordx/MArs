@@ -1,5 +1,7 @@
 # Stage 2: colony operations
 
+> Historical Stage 2 baseline. [v0.2.1](V0.2.1.md) supersedes shared utility storage and version 2 saves with physical networks and schema 3.
+
 ## Requirements and boundaries
 
 Implemented against the uploaded Stage 2 development request, extending the Stage 1 commit merged as `60ff6ee`. The previously referenced full GDD and Technical Specification remain unavailable; the rates below are explicit prototype balance choices, not claims about those missing documents. Mining, rovers, surveying, industry and trading are not implemented.

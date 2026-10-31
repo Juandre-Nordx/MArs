@@ -14,7 +14,7 @@ it('creates a validated in-memory colony and rejects malformed input', async () 
   });
   expect(response.statusCode).toBe(200);
   expect(response.json().colony).toMatchObject({
-    schemaVersion: 2,
+    schemaVersion: 3,
     seed: 42,
     tick: 0,
   });

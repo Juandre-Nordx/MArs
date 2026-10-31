@@ -4,17 +4,38 @@ import {
   buildingDefinitions,
   footprint,
   generateTerrain,
-  placement,
+  infrastructureDefinitions,
+  adjacent,
+  isUsable,
+  port,
+  routeBetween,
+  segmentId,
+  tileKey,
+  type InfrastructureType,
+  type Segment,
   type BuildingType,
   type ColonyState,
   type Tile,
 } from '@mars/simulation';
+import {
+  drawCraft,
+  installBuildingSprites,
+  installInfrastructureSprites,
+  type SpriteSpec,
+} from './art';
 import { tileToWorld, worldToTile, WORLD_SIZE } from './iso';
 type Props = {
   colony: ColonyState | null;
   mission: number;
   selected: Tile | null;
   construction: BuildingType | null;
+  view: InfrastructureType | 'normal';
+  infrastructureTool: { type: InfrastructureType; demolish: boolean } | null;
+  draft: Tile[];
+  routeValid: boolean;
+  buildingPreviewValid: boolean;
+  onRoute: (tiles: Tile[]) => void;
+  onCancel: () => void;
   onSelect: (tile: Tile) => void;
   onHover: (tile: Tile | null) => void;
   onTouchdown: () => void;
@@ -34,6 +55,12 @@ export function World(props: Props) {
   useEffect(() => {
     if (!host.current) return;
     class MarsScene extends Phaser.Scene {
+      private specs!: Record<BuildingType, SpriteSpec>;
+      private buildingImages: Phaser.GameObjects.Image[] = [];
+      private infrastructureImages: Phaser.GameObjects.Image[] = [];
+      private infrastructureSignature = '';
+      private infrastructureRef: Segment[] | null = null;
+      private faults!: Phaser.GameObjects.Graphics;
       private terrain!: Phaser.GameObjects.Graphics;
       private structures!: Phaser.GameObjects.Graphics;
       private overlay!: Phaser.GameObjects.Graphics;
@@ -45,8 +72,12 @@ export function World(props: Props) {
       private landed = false;
       private hover: Tile | null = null;
       create() {
-        this.terrain = this.add.graphics();
+        this.specs = installBuildingSprites(this);
+        installInfrastructureSprites(this);
+        this.input.mouse?.disableContextMenu();
+        this.terrain = this.add.graphics().setDepth(-20000);
         this.structures = this.add.graphics();
+        this.faults = this.add.graphics().setDepth(9999);
         this.overlay = this.add.graphics().setDepth(10000);
         this.ship = this.add.graphics().setDepth(10001);
         const camera = this.cameras.main;
@@ -55,6 +86,7 @@ export function World(props: Props) {
         let startX = 0;
         let startY = 0;
         let moved = false;
+        let route: Tile[] | null = null;
         const tileAt = (p: Phaser.Input.Pointer): Tile | null => {
           const point = camera.getWorldPoint(p.x, p.y);
           const tile = worldToTile(point.x, point.y);
@@ -66,11 +98,37 @@ export function World(props: Props) {
             : tile;
         };
         this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+          if (p.rightButtonDown()) {
+            route = null;
+            latest.current.onCancel();
+            return;
+          }
+          if (latest.current.infrastructureTool && p.leftButtonDown()) {
+            const tile = tileAt(p);
+            route = tile ? [tile] : [];
+            latest.current.onRoute(route);
+            return;
+          }
           startX = p.x;
           startY = p.y;
           moved = false;
         });
         this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+          if (route && p.isDown && latest.current.infrastructureTool) {
+            const tile = tileAt(p);
+            if (tile && route.length < WORLD_SIZE * WORLD_SIZE) {
+              const last = route.at(-1);
+              route = [
+                ...new Map(
+                  [...route, ...(last ? routeBetween(last, tile) : [tile])].map(
+                    (t) => [tileKey(t), t],
+                  ),
+                ).values(),
+              ];
+              latest.current.onRoute(route);
+            }
+            return;
+          }
           if (p.isDown && Math.hypot(p.x - startX, p.y - startY) > 5)
             moved = true;
           if (p.isDown && moved) {
@@ -81,6 +139,12 @@ export function World(props: Props) {
           latest.current.onHover(this.hover);
         });
         this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
+          if (p.button === 2) return;
+          if (route) {
+            latest.current.onRoute(route);
+            route = null;
+            return;
+          }
           if (moved) return;
           const tile = tileAt(p);
           if (tile) latest.current.onSelect(tile);
@@ -153,63 +217,94 @@ export function World(props: Props) {
         }
       }
       private drawBuildings(colony: ColonyState) {
+        for (const image of this.buildingImages) image.destroy();
+        this.buildingImages = [];
         this.structures.clear();
-        const buildings = [...colony.buildings].sort(
-          (a, b) => a.x + a.y - b.x - b.y,
-        );
-        for (const building of buildings) {
-          const definition = buildingDefinitions[building.type];
-          for (const tile of footprint(building.type, building)) {
-            const p = tileToWorld(tile.x, tile.y);
-            this.structures
-              .fillStyle(0x241f21, 0.65)
-              .fillPoints(diamond(p.x + 3, p.y + 5), true);
-            this.structures
-              .fillStyle(definition.color)
-              .fillPoints(diamond(p.x, p.y - 8), true);
-            this.structures.fillStyle(0x39464a).fillPoints(
-              [
-                { x: p.x - 32, y: p.y - 8 },
-                { x: p.x, y: p.y + 8 },
-                { x: p.x, y: p.y + 16 },
-                { x: p.x - 32, y: p.y },
-              ],
-              true,
-            );
-            this.structures
-              .lineStyle(1, 0xffffff, 0.35)
-              .strokePoints(diamond(p.x, p.y - 8), true);
-            if (building.type === 'solar') {
-              this.structures
-                .lineStyle(1, 0x889dd8)
-                .lineBetween(p.x - 20, p.y - 8, p.x + 4, p.y + 4)
-                .lineBetween(p.x - 4, p.y - 20, p.x + 20, p.y - 8);
-            }
-            if (building.type === 'farm')
-              this.structures
-                .fillStyle(0x234d32)
-                .fillEllipse(p.x, p.y - 8, 34, 10);
-            if (building.type.includes('tank'))
-              this.structures
-                .fillStyle(0xa6d2d9)
-                .fillRoundedRect(p.x - 10, p.y - 27, 20, 23, 5);
-            if (building.type === 'housing')
-              this.structures
-                .fillStyle(0xffc777)
-                .fillRect(p.x - 8, p.y - 12, 16, 4);
-          }
-          const p = tileToWorld(building.x, building.y);
-          if (building.type === 'starship')
-            this.drawShip(this.structures, p.x, p.y - 12, 1);
-          const warning = [
-            'no-power',
-            'no-input',
-            'disabled',
-            'no-workers',
-          ].includes(building.status);
+        for (const b of colony.buildings) {
+          const p = tileToWorld(b.x, b.y),
+            spec = this.specs[b.type];
+          const image = this.add
+            .image(p.x, p.y, spec.key)
+            .setOrigin(spec.originX, spec.originY)
+            .setDepth((b.x + b.y) * 10);
+          if (!b.enabled || b.health === 0) image.setAlpha(0.55);
+          this.buildingImages.push(image);
+          const d = buildingDefinitions[b.type],
+            cx = p.x + 16 * (d.width - d.height),
+            cy = p.y + 8 * (d.width + d.height - 2);
+          const warning = b.status.startsWith('no-') || b.status === 'disabled';
           this.structures
-            .fillStyle(warning ? 0xf67b5b : 0x8be1c1)
-            .fillCircle(p.x + 12, p.y - 21, 3);
+            .setDepth(9000)
+            .fillStyle(warning ? 0xff8165 : 0x8be1c1)
+            .fillCircle(cx + 19, cy - 26, 2.5);
+        }
+      }
+      private drawInfrastructure(
+        colony: ColonyState,
+        view: Props['view'],
+        selected: Tile | null,
+      ) {
+        for (const image of this.infrastructureImages) image.destroy();
+        this.infrastructureImages = [];
+        this.faults.clear();
+        const b = selected
+          ? colony.buildings.find((b) =>
+              footprint(b.type, b).some(
+                (t) => t.x === selected.x && t.y === selected.y,
+              ),
+            )
+          : undefined;
+        const selectedIds = new Set(
+          colony.networks
+            .filter(
+              (n) =>
+                (view === 'normal' || n.type === view) &&
+                (b
+                  ? n.buildings.includes(b.id)
+                  : selected
+                    ? n.segments.includes(segmentId(n.type, selected))
+                    : false),
+            )
+            .flatMap((n) => n.segments),
+        );
+        const live = new Set(
+          colony.infrastructure.filter(isUsable).map((s) => s.id),
+        );
+        for (const segment of colony.infrastructure) {
+          const p = tileToWorld(segment.x, segment.y);
+          let mask = 0;
+          for (const [i, tile] of adjacent(segment).entries())
+            if (live.has(segmentId(segment.type, tile))) mask |= 1 << i;
+          if (isUsable(segment))
+            for (const building of colony.buildings) {
+              const endpoint = port(building, segment.type);
+              if (endpoint?.x === segment.x && endpoint.y === segment.y)
+                mask |= 4; // North-facing port terminates to the south.
+            }
+          const image = this.add
+            .image(p.x, p.y, `mars-infra-${segment.type}-${mask}`)
+            .setOrigin(0.5)
+            .setDepth(-10000 + (segment.type === 'road' ? 0 : 1));
+          image.setAlpha(
+            view === 'normal'
+              ? segment.type === 'road'
+                ? 0.75
+                : 0.6
+              : segment.type === view
+                ? 1
+                : 0.13,
+          );
+          if (selectedIds.size && !selectedIds.has(segment.id))
+            image.setAlpha(image.alpha * 0.4);
+          if (!isUsable(segment)) {
+            image.setTint(0xff4b3a).setAlpha(0.9);
+            if (view === 'normal' || view === segment.type)
+              this.faults
+                .lineStyle(2, 0xff6955)
+                .lineBetween(p.x - 4, p.y - 4, p.x + 4, p.y + 4)
+                .lineBetween(p.x + 4, p.y - 4, p.x - 4, p.y + 4);
+          }
+          this.infrastructureImages.push(image);
         }
       }
       private drawShip(
@@ -218,53 +313,30 @@ export function World(props: Props) {
         y: number,
         scale: number,
       ) {
-        graphics
-          .fillStyle(0xb8c4c6)
-          .fillRoundedRect(
-            x - 10 * scale,
-            y - 57 * scale,
-            20 * scale,
-            49 * scale,
-            6,
-          );
-        graphics
-          .fillStyle(0xe8ece5)
-          .fillTriangle(
-            x - 10 * scale,
-            y - 53 * scale,
-            x,
-            y - 76 * scale,
-            x + 10 * scale,
-            y - 53 * scale,
-          );
-        graphics
-          .fillStyle(0x435466)
-          .fillRect(x - 7 * scale, y - 48 * scale, 14 * scale, 8 * scale);
-        graphics
-          .fillStyle(0x899aa0)
-          .fillTriangle(
-            x - 10 * scale,
-            y - 28 * scale,
-            x - 22 * scale,
-            y,
-            x - 7 * scale,
-            y - 8 * scale,
-          )
-          .fillTriangle(
-            x + 10 * scale,
-            y - 28 * scale,
-            x + 22 * scale,
-            y,
-            x + 7 * scale,
-            y - 8 * scale,
-          );
+        drawCraft(graphics, x, y, scale);
       }
       update(time: number) {
-        const { colony, mission, selected, construction } = latest.current;
+        const {
+          colony,
+          mission,
+          selected,
+          construction,
+          view,
+          infrastructureTool,
+          draft,
+          routeValid,
+          buildingPreviewValid,
+        } = latest.current;
         if (this.seed !== (colony?.seed ?? 1) || this.mission !== mission) {
           this.seed = colony?.seed ?? 1;
           this.mission = mission;
           this.signature = '';
+          this.infrastructureSignature = '';
+          for (const image of this.buildingImages) image.destroy();
+          this.buildingImages = [];
+          for (const image of this.infrastructureImages) image.destroy();
+          this.infrastructureImages = [];
+          this.faults.clear();
           this.landed = false;
           this.landingStarted = time;
           this.drawTerrain(this.seed, colony);
@@ -281,6 +353,21 @@ export function World(props: Props) {
           this.signature = signature;
           this.structures.clear();
           if (colony) this.drawBuildings(colony);
+        }
+        const infrastructureSignature = JSON.stringify([
+          colony?.buildings.length,
+          view,
+          selected?.x,
+          selected?.y,
+        ]);
+        if (
+          colony &&
+          (colony.infrastructure !== this.infrastructureRef ||
+            infrastructureSignature !== this.infrastructureSignature)
+        ) {
+          this.infrastructureRef = colony.infrastructure;
+          this.infrastructureSignature = infrastructureSignature;
+          this.drawInfrastructure(colony, view, selected);
         }
         this.ship.clear();
         if (colony?.phase === 'landing') {
@@ -329,10 +416,7 @@ export function World(props: Props) {
                   return b ? footprint(b.type, b) : [selected];
                 })()
               : [];
-        const valid =
-          construction && this.hover && colony
-            ? placement(colony, construction, this.hover).valid
-            : true;
+        const valid = buildingPreviewValid;
         for (const tile of cells) {
           const p = tileToWorld(tile.x, tile.y);
           this.overlay
@@ -341,6 +425,38 @@ export function World(props: Props) {
           this.overlay
             .lineStyle(2, valid ? 0x81e2c6 : 0xff6655)
             .strokePoints(diamond(p.x, p.y), true);
+        }
+        if (infrastructureTool)
+          for (const tile of draft) {
+            const p = tileToWorld(tile.x, tile.y);
+            const color = routeValid ? 0x7ee8ad : 0xff6655;
+            this.overlay
+              .fillStyle(color, 0.25)
+              .fillPoints(diamond(p.x, p.y), true)
+              .lineStyle(2, color)
+              .strokePoints(diamond(p.x, p.y), true);
+          }
+        if (colony) {
+          const selectedBuilding = selected
+            ? colony.buildings.find((b) =>
+                footprint(b.type, b).some(
+                  (t) => t.x === selected.x && t.y === selected.y,
+                ),
+              )
+            : undefined;
+          if (selectedBuilding)
+            for (const [index, type] of (
+              ['water', 'oxygen', 'power'] as const
+            ).entries()) {
+              const tile = port(selectedBuilding, type);
+              if (!tile) continue;
+              const p = tileToWorld(tile.x, tile.y);
+              this.overlay
+                .fillStyle(infrastructureDefinitions[type].color)
+                .fillCircle(p.x + (index - 1) * 7, p.y, 3)
+                .lineStyle(1, 0x101820)
+                .strokeCircle(p.x + (index - 1) * 7, p.y, 3);
+            }
         }
       }
     }

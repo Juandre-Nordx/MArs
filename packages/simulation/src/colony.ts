@@ -14,7 +14,31 @@ import {
   type Stock,
 } from './catalog.js';
 import { findLandingZone, type Tile } from './terrain.js';
-export const SCHEMA_VERSION = 2 as const;
+import {
+  aggregateStores,
+  deposit,
+  distributeCargo,
+  emptyStores,
+  infrastructureDefinitions,
+  infrastructureSchema,
+  infrastructureTypeSchema,
+  isUsable,
+  networkFor,
+  networkSchema,
+  port,
+  rebuildNetworks,
+  reserve,
+  room,
+  routePreview,
+  segmentId,
+  starterInfrastructure,
+  storesSchema,
+  withdraw,
+  type InfrastructureType,
+  type Segment,
+  type Utility,
+} from './networks.js';
+export const SCHEMA_VERSION = 3 as const;
 export const STEP_MS = 1000;
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const buildingSchema = z
@@ -26,6 +50,8 @@ export const buildingSchema = z
     health: z.number().min(0).max(100),
     enabled: z.boolean(),
     workers: integer,
+    priority: integer.max(100),
+    stores: storesSchema,
     status: z.enum([
       'ready',
       'running',
@@ -34,6 +60,9 @@ export const buildingSchema = z
       'no-input',
       'storage-full',
       'no-workers',
+      'no-water-connection',
+      'no-oxygen-connection',
+      'no-power-connection',
     ]),
   })
   .strict();
@@ -73,6 +102,9 @@ const baseColonySchema = z
     speed: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(4)]),
     nextBuildingId: integer,
     telemetry: telemetrySchema,
+    networkRulesVersion: z.literal(1),
+    infrastructure: z.array(infrastructureSchema).max(1600),
+    networks: z.array(networkSchema).max(1600),
   })
   .strict();
 export type ColonyState = z.infer<typeof baseColonySchema>;
@@ -194,6 +226,67 @@ export const colonySchema = baseColonySchema.superRefine((state, context) => {
       code: 'custom',
       message: 'Worker assignments exceed population',
     });
+  const segmentIds = new Set<string>();
+  for (const segment of state.infrastructure) {
+    if (
+      segment.id !== segmentId(segment.type, segment) ||
+      segmentIds.has(segment.id) ||
+      buildingAt(state, segment) ||
+      segment.paidMetal > infrastructureDefinitions[segment.type].metal
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Invalid infrastructure segment',
+      });
+    segmentIds.add(segment.id);
+  }
+  for (const building of state.buildings)
+    for (const key of ['water', 'oxygen', 'energy'] as const)
+      if (
+        building.stores[key] >
+        (buildingDefinitions[building.type].capacity[key] ?? 0) + 1e-9
+      )
+        context.addIssue({
+          code: 'custom',
+          message: 'Building storage capacity exceeded',
+        });
+  if (state.phase === 'active') {
+    for (const key of ['water', 'oxygen', 'energy'] as const)
+      if (
+        Math.abs(
+          state.inventory[key] -
+            state.buildings.reduce((sum, b) => sum + b.stores[key], 0),
+        ) > 0.000001
+      )
+        context.addIssue({
+          code: 'custom',
+          message: 'Aggregate inventory does not match physical stores',
+        });
+    const topology = (networks: ColonyState['networks']) =>
+      networks.map(
+        ({ id, type, segments, buildings, producers, storage, consumers }) => ({
+          id,
+          type,
+          segments,
+          buildings,
+          producers,
+          storage,
+          consumers,
+        }),
+      );
+    if (
+      JSON.stringify(topology(rebuildNetworks(state))) !==
+      JSON.stringify(topology(state.networks))
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Network topology is stale',
+      });
+  } else if (state.infrastructure.length || state.networks.length)
+    context.addIssue({
+      code: 'custom',
+      message: 'Infrastructure must await deployment',
+    });
   const cap = capacities(state);
   for (const key of resourceKeys)
     if (state.inventory[key] > cap[key] + 1e-9)
@@ -215,6 +308,8 @@ function makeBuilding(
     enabled: true,
     workers: buildingDefinitions[type].workers,
     status: 'ready',
+    priority: buildingDefinitions[type].priority,
+    stores: emptyStores(),
   };
 }
 function assignWorkers(buildings: Building[], population: number): Building[] {
@@ -224,7 +319,7 @@ function assignWorkers(buildings: Building[], population: number): Building[] {
     const workers =
       b.enabled && b.health > 0 && available >= required ? required : 0;
     available -= workers;
-    return { ...b, workers };
+    return { ...b, workers, stores: { ...b.stores } };
   });
 }
 export function newGame(seed = 1): ColonyState {
@@ -242,6 +337,9 @@ export function newGame(seed = 1): ColonyState {
     speed: 1,
     nextBuildingId: 1,
     telemetry: blankTelemetry(),
+    networkRulesVersion: 1,
+    infrastructure: [],
+    networks: [],
   });
 }
 export function deployColony(state: ColonyState): ColonyState {
@@ -264,8 +362,9 @@ export function deployColony(state: ColonyState): ColonyState {
     { type: 'battery', x: 9, y: 15 },
     { type: 'warehouse', x: 12, y: 14 },
   ];
-  return colonySchema.parse({
+  const deployed: ColonyState = {
     ...state,
+    inventory: { ...state.inventory },
     phase: 'active',
     buildings: manifest.map((item, index) =>
       makeBuilding(`starter-${index}`, item.type, {
@@ -273,7 +372,10 @@ export function deployColony(state: ColonyState): ColonyState {
         y: item.y + dy,
       }),
     ),
-  });
+  };
+  distributeCargo(deployed);
+  deployed.infrastructure = starterInfrastructure(deployed.buildings);
+  return colonySchema.parse(refreshNetworks(deployed));
 }
 export function placement(
   state: ColonyState,
@@ -294,6 +396,17 @@ export function placement(
     return { valid: false, reason: 'Outside map boundary' };
   if (footprint(type, tile).some((cell) => buildingAt(state, cell)))
     return { valid: false, reason: 'Building footprint is occupied' };
+  if (
+    footprint(type, tile).some((cell) =>
+      state.infrastructure.some(
+        (segment) => segment.x === cell.x && segment.y === cell.y,
+      ),
+    )
+  )
+    return {
+      valid: false,
+      reason: 'Remove infrastructure from the footprint first',
+    };
   const definition = buildingDefinitions[type];
   if (
     state.inventory.metal < definition.cost.metal ||
@@ -314,19 +427,21 @@ export function construct(
   let id = state.nextBuildingId;
   while (state.buildings.some((b) => b.id === `built-${id}`)) id++;
   const definition = buildingDefinitions[type];
-  return colonySchema.parse({
-    ...state,
-    inventory: {
-      ...state.inventory,
-      metal: state.inventory.metal - definition.cost.metal,
-    },
-    credits: state.credits - definition.cost.credits,
-    nextBuildingId: id + 1,
-    buildings: assignWorkers(
-      [...state.buildings, makeBuilding(`built-${id}`, type, tile)],
-      state.population,
-    ),
-  });
+  return colonySchema.parse(
+    refreshNetworks({
+      ...state,
+      inventory: {
+        ...state.inventory,
+        metal: state.inventory.metal - definition.cost.metal,
+      },
+      credits: state.credits - definition.cost.credits,
+      nextBuildingId: id + 1,
+      buildings: assignWorkers(
+        [...state.buildings, makeBuilding(`built-${id}`, type, tile)],
+        state.population,
+      ),
+    }),
+  );
 }
 export function setSpeed(
   state: ColonyState,
@@ -340,7 +455,7 @@ export function setSpeed(
   };
 }
 export function toggleBuilding(state: ColonyState, id: string): ColonyState {
-  return {
+  return refreshNetworks({
     ...state,
     buildings: assignWorkers(
       state.buildings.map((b) =>
@@ -354,9 +469,91 @@ export function toggleBuilding(state: ColonyState, id: string): ColonyState {
       ),
       state.population,
     ),
-  };
+  });
 }
 const round = (value: number) => Math.round(value * 1000000) / 1000000;
+export function refreshNetworks(state: ColonyState): ColonyState {
+  const next = {
+    ...state,
+    buildings: state.buildings.map((b) => ({ ...b, stores: { ...b.stores } })),
+    networks: rebuildNetworks(state),
+  };
+  for (const building of next.buildings) {
+    if (!isUsable(building)) {
+      building.status = 'disabled';
+      continue;
+    }
+    const missing = (['water', 'oxygen', 'power'] as const).find(
+      (type) =>
+        port(building, type) && !networkFor(next.networks, building.id, type),
+    );
+    if (missing) building.status = `no-${missing}-connection`;
+    else if (building.status.endsWith('-connection')) building.status = 'ready';
+  }
+  return next;
+}
+export function buildInfrastructure(
+  state: ColonyState,
+  type: InfrastructureType,
+  route: Tile[],
+  demolish = false,
+): ColonyState {
+  infrastructureTypeSchema.parse(type);
+  if (state.phase !== 'active') throw new Error('Wait for touchdown');
+  const preview = routePreview(state, type, route, demolish);
+  if (!preview.valid) throw new Error(preview.reason);
+  const keys = new Set(preview.tiles.map((tile) => segmentId(type, tile)));
+  let infrastructure: Segment[] = state.infrastructure.filter(
+    (segment) => !keys.has(segment.id) || (!demolish && isUsable(segment)),
+  );
+  if (!demolish) {
+    const ids = new Set(infrastructure.map((s) => s.id));
+    infrastructure = [
+      ...infrastructure,
+      ...preview.tiles
+        .filter((tile) => !ids.has(segmentId(type, tile)))
+        .map((tile) => ({
+          ...tile,
+          id: segmentId(type, tile),
+          type,
+          health: 100,
+          enabled: true,
+          paidMetal: infrastructureDefinitions[type].metal,
+        })),
+    ];
+  }
+  return colonySchema.parse(
+    refreshNetworks({
+      ...state,
+      infrastructure,
+      inventory: {
+        ...state.inventory,
+        metal: round(state.inventory.metal - preview.cost + preview.refund),
+      },
+    }),
+  );
+}
+export function toggleSegment(state: ColonyState, id: string): ColonyState {
+  return refreshNetworks({
+    ...state,
+    infrastructure: state.infrastructure.map((s) =>
+      s.id === id ? { ...s, enabled: !s.enabled } : s,
+    ),
+  });
+}
+export function setPowerPriority(
+  state: ColonyState,
+  id: string,
+  priority: number,
+): ColonyState {
+  const value = z.number().int().min(0).max(100).parse(priority);
+  return {
+    ...state,
+    buildings: state.buildings.map((b) =>
+      b.id === id ? { ...b, priority: value } : b,
+    ),
+  };
+}
 export function step(input: ColonyState): ColonyState {
   if (input.phase !== 'active' || input.speed === 0) return input;
   const state: ColonyState = {
@@ -364,93 +561,238 @@ export function step(input: ColonyState): ColonyState {
     tick: input.tick + 1,
     inventory: { ...input.inventory },
     buildings: assignWorkers(input.buildings, input.population),
+    networks: input.networks.map((n) => ({
+      ...n,
+      supply: 0,
+      demand: 0,
+      allocated: 0,
+      status: 'idle',
+    })),
     telemetry: blankTelemetry(),
   };
   const stock = state.inventory;
   const cap = capacities(state);
   const telemetry = state.telemetry;
-  const usable = (b: Building) => b.enabled && b.health > 0;
   const daylight = input.tick % SOL_TICKS < SOL_TICKS * 0.75;
-  telemetry.generated = daylight
-    ? state.buildings
-        .filter(usable)
-        .reduce((sum, b) => sum + buildingDefinitions[b.type].generation, 0)
-    : 0;
-  const canDischarge = state.buildings.some(
-    (b) => b.type === 'battery' && usable(b),
+  const byId = new Map(state.buildings.map((b) => [b.id, b]));
+  const connected = new Map(
+    state.networks.flatMap((n) =>
+      n.buildings.map((id) => [`${n.type}:${id}`, n] as const),
+    ),
   );
-  const reservedEnergy = canDischarge ? 0 : stock.energy;
-  let power = telemetry.generated + (canDischarge ? stock.energy : 0);
-  for (const building of state.buildings) {
+  const power = new Map<
+    string,
+    { generation: number; used: number; available: number }
+  >();
+  for (const network of state.networks) {
+    if (network.type === 'power') {
+      const generation = daylight
+        ? network.producers.reduce((sum, id) => {
+            const b = byId.get(id)!;
+            return (
+              sum + (isUsable(b) ? buildingDefinitions[b.type].generation : 0)
+            );
+          }, 0)
+        : 0;
+      power.set(network.id, {
+        generation,
+        used: 0,
+        available: generation + reserve(state, network),
+      });
+      network.supply = generation + reserve(state, network);
+      telemetry.generated += generation;
+    } else if (network.type !== 'road')
+      network.supply = reserve(state, network);
+  }
+  const channel = (key: Resource): Utility | null =>
+    key === 'energy'
+      ? 'power'
+      : key === 'water' || key === 'oxygen'
+        ? key
+        : null;
+  const net = (id: string, key: Resource) => {
+    const type = channel(key);
+    return type ? connected.get(`${type}:${id}`) : undefined;
+  };
+  const available = (id: string, key: Resource) => {
+    const network = net(id, key);
+    return channel(key) ? (network ? reserve(state, network) : 0) : stock[key];
+  };
+  const space = (id: string, key: Resource) => {
+    const network = net(id, key);
+    return channel(key)
+      ? network
+        ? room(state, network)
+        : 0
+      : cap[key] - stock[key];
+  };
+  const take = (id: string, key: Resource, value: number) => {
+    const network = net(id, key);
+    if (network) {
+      withdraw(state, network, value);
+      network.allocated += value;
+    } else stock[key] -= value;
+    telemetry.consumed[key] += value;
+  };
+  const add = (id: string, key: Resource, value: number) => {
+    const network = net(id, key);
+    if (network) {
+      deposit(state, network, value);
+      network.supply += value;
+    } else stock[key] += value;
+    telemetry.produced[key] += value;
+  };
+  const order = [...state.buildings].sort(
+    (a, b) =>
+      a.priority - b.priority || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+  for (const building of order) {
     const definition = buildingDefinitions[building.type];
-    if (!usable(building)) {
+    if (!isUsable(building)) {
       building.status = 'disabled';
+      continue;
+    }
+    const missing = (['water', 'oxygen', 'power'] as const).find(
+      (type) =>
+        port(building, type) && !connected.has(`${type}:${building.id}`),
+    );
+    for (const [key, value] of Object.entries(definition.inputs) as [
+      Resource,
+      number,
+    ][]) {
+      const network = net(building.id, key);
+      if (network) network.demand += value;
+    }
+    const grid = connected.get(`power:${building.id}`);
+    const electricity = grid ? power.get(grid.id) : undefined;
+    if (grid) grid.demand += definition.power;
+    telemetry.demand += definition.power;
+    if (missing) {
+      building.status = `no-${missing}-connection`;
       continue;
     }
     if (building.workers < definition.workers) {
       building.status = 'no-workers';
       continue;
     }
-    telemetry.demand += definition.power;
-    if (power + 1e-9 < definition.power) {
+    if (
+      definition.power > 0 &&
+      (!electricity ||
+        electricity.available - electricity.used + 1e-9 < definition.power)
+    ) {
       building.status = 'no-power';
       continue;
     }
     const inputs = Object.entries(definition.inputs) as [Resource, number][];
     const outputs = Object.entries(definition.outputs) as [Resource, number][];
-    if (inputs.some(([key, value]) => stock[key] + 1e-9 < value)) {
+    if (
+      inputs.some(([key, value]) => available(building.id, key) + 1e-9 < value)
+    ) {
       building.status = 'no-input';
       continue;
     }
     if (
       outputs.some(
         ([key, value]) =>
-          stock[key] - (definition.inputs[key] ?? 0) + value > cap[key] + 1e-9,
+          space(building.id, key) + (definition.inputs[key] ?? 0) + 1e-9 <
+          value,
       )
     ) {
       building.status = 'storage-full';
       continue;
     }
-    power -= definition.power;
+    if (electricity && grid) {
+      electricity.used += definition.power;
+      grid.allocated += definition.power;
+    }
     telemetry.used += definition.power;
-    for (const [key, value] of inputs) {
-      stock[key] -= value;
-      telemetry.consumed[key] += value;
-    }
-    for (const [key, value] of outputs) {
-      stock[key] += value;
-      telemetry.produced[key] += value;
-    }
+    for (const [key, value] of inputs) take(building.id, key, value);
+    for (const [key, value] of outputs) add(building.id, key, value);
     building.status =
       building.type === 'solar' && !daylight ? 'ready' : 'running';
   }
-  const energy = canDischarge
-    ? Math.min(cap.energy, Math.max(0, power))
-    : reservedEnergy;
-  telemetry.batteryDelta = round(energy - stock.energy);
-  stock.energy = energy;
-  // Consumption is limited to available stock; unmet needs become alerts, never negative balances.
-  for (const key of ['oxygen', 'water', 'food'] as const) {
-    const required = state.population * populationRates[key];
-    const consumed = Math.min(stock[key], required);
-    stock[key] -= consumed;
-    telemetry.consumed[key] += consumed;
-    telemetry.unmet[key] = round(required - consumed);
-    const waste =
-      key === 'water'
-        ? 'wastewater'
-        : key === 'oxygen'
-          ? 'carbonDioxide'
-          : null;
-    if (waste) {
+  // Utility consumption belongs to actual occupied habitats, never a global pipe pool.
+  let housed = 0;
+  for (const building of state.buildings
+    .filter((b) => buildingDefinitions[b.type].housing && isUsable(b))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+    const occupants = Math.min(
+      buildingDefinitions[building.type].housing,
+      Math.max(0, state.population - housed),
+    );
+    housed += occupants;
+    for (const key of ['water', 'oxygen'] as const) {
+      const required = occupants * populationRates[key];
+      const network = net(building.id, key);
+      if (!network) continue;
+      network.demand += required;
+      const amount = Math.min(reserve(state, network), required);
+      take(building.id, key, amount);
+      const waste = key === 'water' ? 'wastewater' : 'carbonDioxide';
       const recovered = Math.min(
         cap[waste] - stock[waste],
-        consumed * (key === 'water' ? 0.75 : 1),
+        amount * (key === 'water' ? 0.75 : 1),
       );
       stock[waste] += recovered;
       telemetry.produced[waste] += recovered;
     }
   }
+  for (const key of ['water', 'oxygen'] as const) {
+    const recipeConsumption = state.buildings.reduce(
+      (sum, b) =>
+        sum +
+        (b.status === 'running'
+          ? (buildingDefinitions[b.type].inputs[key] ?? 0)
+          : 0),
+      0,
+    );
+    telemetry.unmet[key] = round(
+      Math.max(
+        0,
+        state.population * populationRates[key] -
+          (telemetry.consumed[key] - recipeConsumption),
+      ),
+    );
+  }
+  const food = Math.min(stock.food, state.population * populationRates.food);
+  stock.food -= food;
+  telemetry.consumed.food += food;
+  telemetry.unmet.food = round(state.population * populationRates.food - food);
+  const priorEnergy = stock.energy;
+  for (const network of state.networks) {
+    const electricity = power.get(network.id);
+    if (electricity) {
+      const difference = electricity.generation - electricity.used;
+      if (difference >= 0)
+        deposit(state, network, Math.min(room(state, network), difference));
+      else withdraw(state, network, -difference);
+    }
+    if (network.type !== 'road') {
+      network.stored = reserve(state, network);
+      network.capacity = network.stored + room(state, network);
+    }
+    network.status =
+      network.allocated + 1e-9 < network.demand
+        ? network.supply + 1e-9 < network.demand
+          ? 'shortage'
+          : 'blocked'
+        : network.demand || network.supply
+          ? 'operational'
+          : 'idle';
+    for (const metric of [
+      'supply',
+      'demand',
+      'allocated',
+      'stored',
+      'capacity',
+    ] as const)
+      network[metric] = round(network[metric]);
+  }
+  for (const b of state.buildings)
+    for (const key of ['water', 'oxygen', 'energy'] as const)
+      b.stores[key] = round(Math.max(0, b.stores[key]));
+  aggregateStores(state);
+  telemetry.batteryDelta = round(stock.energy - priorEnergy);
   for (const key of resourceKeys)
     stock[key] = round(Math.max(0, Math.min(cap[key], stock[key])));
   return state;
@@ -491,6 +833,13 @@ export function alerts(state: ColonyState): string[] {
     result.push('Insufficient workers: facilities stopped');
   if (state.buildings.some((b) => b.status === 'no-input'))
     result.push('Production waiting for feedstock');
+  for (const type of ['water', 'oxygen', 'power'] as const) {
+    const count = state.buildings.filter(
+      (b) =>
+        isUsable(b) && port(b, type) && !networkFor(state.networks, b.id, type),
+    ).length;
+    if (count) result.push(`No ${type} connection: ${count} building(s)`);
+  }
   const housing = state.buildings.reduce(
     (sum, b) =>
       sum +
@@ -500,11 +849,44 @@ export function alerts(state: ColonyState): string[] {
   if (housing < state.population) result.push('Insufficient housing');
   return result;
 }
+const legacyBuildingSchema = buildingSchema.omit({
+  stores: true,
+  priority: true,
+});
+const legacyColonySchema = baseColonySchema
+  .omit({ infrastructure: true, networks: true, networkRulesVersion: true })
+  .extend({
+    schemaVersion: z.literal(2),
+    buildings: z.array(legacyBuildingSchema).max(400),
+  });
 export function loadSave(value: unknown): ColonyState {
   const version = z
     .object({ schemaVersion: z.number() })
     .parse(value).schemaVersion;
-  if (version === 2) return colonySchema.parse(value);
+  if (version === 3) {
+    const state = baseColonySchema.parse(value);
+    return colonySchema.parse(refreshNetworks(state));
+  }
+  if (version === 2) {
+    const legacy = legacyColonySchema.parse(value);
+    const state: ColonyState = {
+      ...legacy,
+      schemaVersion: 3,
+      networkRulesVersion: 1,
+      infrastructure: [],
+      networks: [],
+      buildings: legacy.buildings.map((b) => ({
+        ...b,
+        stores: emptyStores(),
+        priority: buildingDefinitions[b.type].priority,
+      })),
+    };
+    if (state.phase === 'active') {
+      distributeCargo(state);
+      state.infrastructure = starterInfrastructure(state.buildings);
+    }
+    return colonySchema.parse(refreshNetworks(state));
+  }
   if (version !== 1) throw new Error('Unsupported save schema version');
   const legacy = z
     .object({
@@ -522,13 +904,11 @@ export function loadSave(value: unknown): ColonyState {
     })
     .strict()
     .parse(value);
-  // Legacy saves receive structures but no new cargo/credits. New resources start at zero.
   const state = deployColony(newGame(legacy.seed));
-  return colonySchema.parse({
-    ...state,
-    name: legacy.name,
-    tick: legacy.tick,
-    inventory: { ...emptyStock(), ...legacy.inventory },
-    credits: 0,
-  });
+  state.name = legacy.name;
+  state.tick = legacy.tick;
+  state.inventory = { ...emptyStock(), ...legacy.inventory };
+  state.credits = 0;
+  distributeCargo(state);
+  return colonySchema.parse(refreshNetworks(state));
 }

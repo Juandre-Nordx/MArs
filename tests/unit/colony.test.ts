@@ -9,6 +9,7 @@ import {
   colonySchema,
   construct,
   deployColony,
+  distributeCargo,
   emptyStock,
   footprint,
   generateTerrain,
@@ -95,7 +96,7 @@ describe('terrain and deployment', () => {
       inventory: { water: 33, oxygen: 24, metal: 8 },
     };
     const migrated = loadSave(legacy);
-    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.schemaVersion).toBe(3);
     expect(migrated.tick).toBe(42);
     expect(migrated.inventory).toEqual({
       ...emptyStock(),
@@ -106,7 +107,7 @@ describe('terrain and deployment', () => {
     expect(() =>
       loadSave({ ...legacy, inventory: { ...legacy.inventory, water: -1 } }),
     ).toThrow();
-    expect(() => loadSave({ ...active(), schemaVersion: 3 })).toThrow();
+    expect(() => loadSave({ ...active(), schemaVersion: 4 })).toThrow();
     expect(() =>
       loadSave({ ...newGame(), landingZone: { x: 99, y: 99 } }),
     ).toThrow();
@@ -163,6 +164,7 @@ describe('survival and power', () => {
   it('stops production with no power and never spends unavailable input stock', () => {
     const state = disable(active(), ['solar']);
     state.inventory.energy = 0;
+    distributeCargo(state);
     const next = step(state);
     expect(
       next.buildings.find((b) => b.type === 'oxygen-generator')?.status,
@@ -172,11 +174,13 @@ describe('survival and power', () => {
     expect(next.inventory.energy).toBe(0);
     const almost = active();
     almost.inventory.water = 0.199999;
+    distributeCargo(almost);
     expect(
       step(almost).buildings.find((b) => b.type === 'oxygen-generator')?.status,
     ).toBe('no-input');
     const dry = active();
     dry.inventory.water = 0;
+    distributeCargo(dry);
     const nextDry = step(dry);
     expect(
       nextDry.buildings.find((b) => b.type === 'oxygen-generator')?.status,
@@ -192,11 +196,13 @@ describe('survival and power', () => {
     expect(next.telemetry.batteryDelta).toBe(-6);
     const full = active();
     full.inventory.energy = capacities(full).energy;
+    distributeCargo(full);
     expect(step(full).inventory.energy).toBe(capacities(full).energy);
   });
   it('stalls full output stores without charging recipe inputs', () => {
     const state = disable(active(), ['farm']);
     state.inventory.oxygen = capacities(state).oxygen;
+    distributeCargo(state);
     const next = step(state);
     expect(
       next.buildings.find((b) => b.type === 'oxygen-generator')?.status,
@@ -244,6 +250,7 @@ describe('survival and power', () => {
       'solar',
     ]);
     state.inventory = { ...emptyStock(), metal: 10 };
+    distributeCargo(state);
     const next = step(state);
     expect(alerts(next)).toContain('Critical: unmet oxygen demand');
     expect(alerts(next)).toContain('Low energy reserves');

@@ -151,6 +151,8 @@ test('landing saves deploy once; low reserve alerts reflect loaded simulation st
   await page.evaluate(() => {
     const save = JSON.parse(localStorage.getItem('mars-first-colony-save')!);
     save.inventory.oxygen = 1;
+    for (const b of save.buildings)
+      b.stores.oxygen = b.type === 'oxygen-tank' ? 1 : 0;
     localStorage.setItem('mars-first-colony-save', JSON.stringify(save));
   });
   await page.getByRole('button', { name: 'Load', exact: true }).click();

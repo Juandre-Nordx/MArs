@@ -59,6 +59,10 @@ export type BuildingDefinition = {
   power: number;
   generation: number;
   workers: number;
+  priority: number;
+  ports: Partial<
+    Record<'water' | 'oxygen' | 'power', { x: number; y: number }>
+  >;
   capacity: Partial<Stock>;
   housing: number;
   cost: { metal: number; credits: number };
@@ -75,6 +79,8 @@ function definition(
     power: 0,
     generation: 0,
     workers: 0,
+    priority: 50,
+    ports: {},
     capacity: {},
     housing: 0,
     cost: { metal: 10, credits: 5 },
@@ -198,3 +204,33 @@ export const recipes = Object.entries(buildingDefinitions)
   .filter(([, value]) => Object.keys(value.inputs).length)
   .map(([id, value]) => ({ id, inputs: value.inputs, outputs: value.outputs }));
 export const contractDefinitions: readonly never[] = [];
+
+// One cardinal connection tile north of each footprint; channels can share that tile.
+for (const [type, definition] of Object.entries(buildingDefinitions)) {
+  if (definition.power || definition.generation || definition.capacity.energy)
+    definition.ports.power = { x: 0, y: -1 };
+  if (
+    definition.housing ||
+    definition.inputs.water ||
+    definition.outputs.water ||
+    definition.capacity.water
+  )
+    definition.ports.water = { x: 0, y: -1 };
+  if (
+    definition.housing ||
+    definition.inputs.oxygen ||
+    definition.outputs.oxygen ||
+    definition.capacity.oxygen
+  )
+    definition.ports.oxygen = { x: 0, y: -1 };
+  definition.priority =
+    type === 'starship'
+      ? 0
+      : type === 'housing'
+        ? 10
+        : type === 'oxygen-generator'
+          ? 20
+          : type === 'water-recycler'
+            ? 30
+            : 50;
+}
