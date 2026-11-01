@@ -19,7 +19,8 @@
     "format": "prettier --write .",
     "db:generate": "npm run db:generate -w @mars/api",
     "db:migrate": "npm run db:migrate -w @mars/api",
-    "benchmark:world": "npm run build -w @mars/simulation && node scripts/benchmark-world.mjs"
+    "benchmark:world": "npm run build -w @mars/simulation && node scripts/benchmark-world.mjs",
+    "test:production": "npm run build && node scripts/smoke-production.mjs"
   },
   "devDependencies": {
     "typescript": "~5.7.3",

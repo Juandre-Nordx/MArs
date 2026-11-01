@@ -1,0 +1,40 @@
+name: Production startup checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run db:generate
+      - run: npm test
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run test:production
+      - run: docker build -t mars-production-check .
+      - name: Start deployment container without a database
+        run: docker run -d --name mars-production-check -e PORT=3001 -p 127.0.0.1:3001:3001 mars-production-check
+      - name: Verify deployed HTTP endpoints
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3001/api/health; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:3001/api/health
+          curl --fail --silent http://127.0.0.1:3001/ --output /tmp/mars-index.html
+          curl --fail --silent --json '{"seed":42}' http://127.0.0.1:3001/api/new-game --output /tmp/mars-new-game.json
+      - name: Container logs and cleanup
+        if: always()
+        run: |
+          docker logs mars-production-check || true
+          docker rm -f mars-production-check || true
