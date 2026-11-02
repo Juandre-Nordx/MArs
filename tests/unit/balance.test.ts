@@ -108,7 +108,11 @@ it('loads in-progress surveys from the slower scan settings without granting ins
     drone.job = { type: 'scan', id: old.industry.scans[0]!.id };
     drone.position = tile;
     drone.activity = 'working';
-    const loaded = loadSave(JSON.parse(JSON.stringify(old)));
+    const { production: _production, ...legacy } = old;
+    void _production;
+    const loaded = loadSave(
+      JSON.parse(JSON.stringify({ ...legacy, schemaVersion: 6 })),
+    );
     expect(loaded.inventory).toEqual(old.inventory);
     expect(loaded.world).toEqual(old.world);
     expect(loaded.industry.drones).toEqual(old.industry.drones);

@@ -45,7 +45,7 @@ export function createApp(
   app.get('/api/health', async () => ({
     status: 'ok',
     stage: 3,
-    version: '0.3.1-phase.2',
+    version: '0.3.3',
   }));
   app.get('/api/ready', async (_request, reply) => {
     if (!configured) {

@@ -1,12 +1,24 @@
-# MARS: FIRST COLONY — V0.3.1 Phase 2
+# MARS: FIRST COLONY — V0.3.3
 
 An original browser-based isometric Mars colony prototype. Stage 2 extends the existing Stage 1 code; Phaser projection/camera controls, React/Vite, Fastify, npm workspaces and Railway configuration are preserved.
+
+## Building information and drone production
+
+Click a building footprint or choose it from **Building roster** to open the same information popup. Switch buildings from the roster, close with **×** or **Escape**, and scroll inside the popup for long inventories and queues. The popup is modeless: pan/zoom on uncovered terrain still works. Popup controls do not issue terrain/construction commands. Information includes purpose, placeholder artwork, condition, enabled state, workers, whole-grid power metrics, footprint connections, local utility/mine storage, assigned drones and separately labelled shared cargo.
+
+A **Survey and drone station** offers **Survey drone** (15 metal, 12 assembly ticks) and **Extraction drone** (20 metal, 18 assembly ticks). Select a product and choose **Queue survey drone** or **Queue extraction drone**. Each work tick needs **1 kWh additional electricity**, on top of the station's 0.25 kWh base load. The prototype uses documented starter-metal recipes; raw ore is not usable metal. There are no technology prerequisites or assembly workers in this release, and no cargo-drone product.
+
+Materials leave shared stock immediately and remain in a saved reservation. Each station supports five queued orders and eight total deployed/reserved drones, including its two original drones; colony fleet/output reservations are capped at 800. Orders run FIFO. After the configured assembly ticks, a saved completed output waits for deployment on a following powered tick. A free explored footprint entry is required; power loss, disabled/destroyed equipment or blocked deployment pauses the order without losing progress. Normal simulation pause and speeds apply.
+
+**Cancel order** refunds the full saved material reservation, including partial/completed assembly; electricity already consumed is never refunded. If shared storage cannot accept the refund, cancellation is rejected and the order/reservation remain intact. Deployment creates one unique saved drone with an empty battery; it may begin ordinary paid charging at its deployment entry during that same fixed tick. Produced drones join existing survey/mining jobs automatically. Cargo logistics, refining and factory products remain pending.
+
+See [V0.3.3 release notes and validation](docs/V0.3.3.md).
 
 ## Large-world foundation
 
 The first V0.3.1 implementation pass adds a 512×512 logical world, visible 16×16 terrain chunks, saved fog, deterministic regions and versioned map expansion. Use **World navigation** to visit coordinates or return to the colony. Panning does not explore terrain; construction outside explored land is blocked. Deposits are seed-defined and finite, with discovery separate from terrain exploration. Geological scans, survey/extraction drones and finite local-buffer mining are now available. Cargo logistics, refining and factories remain pending. [Phase 1 report, benchmarks and remaining work](docs/V0.3.1-PHASE1.md).
 
-Gameplay saves now use schema 6, retaining schema 1–5 migration support. Existing colony positions, utilities, resources, residents and arrivals are preserved. The original 20×20 terrain stays unchanged.
+Gameplay saves now use schema 7, retaining schema 1–6 migration support. Existing colony positions, utilities, resources, residents and arrivals are preserved. The original 20×20 terrain stays unchanged.
 
 ## Central landings
 
@@ -62,7 +74,7 @@ The v0.2.1 foundation persists infrastructure, disabled/damaged segments, physic
 - Ten colonists, input-funded oxygen/water/food production, population consumption, day/night solar power, finite battery charge/discharge, storage limits, operational statuses and reserve alerts.
 - Pause, 1×, 2× and 4× fixed-step simulation. HUD values come from colony state and the last completed tick.
 - Building inspection, footprint selection, roster, enable/disable controls and paid construction with valid/invalid footprint previews. Mining is unlocked; refining and factories remain pending.
-- Explicit browser Save/Load with strict version 6 validation and version 1/2/3/4/5 migrations. Cloud saves and login issuance are still unavailable.
+- Explicit browser Save/Load with strict version 7 validation and version 1/2/3/4/5/6 migrations. Cloud saves and login issuance are still unavailable.
 
 See [Stage 2 design, validation and limitations](docs/STAGE2.md) and [Railway deployment](docs/RAILWAY.md). The industrial expansion has started with large-world support; later phases remain pending.
 
@@ -108,7 +120,7 @@ Stop an existing development server before Playwright; its configuration owns th
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm run test:e2e -- --workers=1 --timeout=90000
 ```
 
-Phase 1 validation (historical): production workspace build, 99 Vitest tests, sixteen Chromium browser checks, lint and formatting passed. Current Phase 2 validation is recorded in [the release notes](docs/V0.3.1-PHASE2.md). Coverage includes seeded maps, exact starter counts/accessibility, idempotent deployment/load, production/consumption accounting, power/worker starvation, capacity limits over 1,500 ticks, clock determinism/speeds, save migration, footprint selection, paid construction and the original economic/camera checks. Earlier baseline layouts were inspected at 1366×768, 1280×720 and 1024×768. The new large-world browser checks use the Playwright default viewport; pure culling tests cover 1366×768 at minimum zoom.
+Phase 1 validation (historical): production workspace build, 99 Vitest tests, sixteen Chromium browser checks, lint and formatting passed. Current V0.3.3 validation (141 unit tests and 22 browser checks) is recorded in [the release notes](docs/V0.3.3.md); [Phase 2 results](docs/V0.3.1-PHASE2.md) are historical. Coverage includes seeded maps, exact starter counts/accessibility, idempotent deployment/load, production/consumption accounting, power/worker starvation, capacity limits over 1,500 ticks, clock determinism/speeds, save migration, footprint selection, paid construction and the original economic/camera checks. Earlier baseline layouts were inspected at 1366×768, 1280×720 and 1024×768. The new large-world browser checks use the Playwright default viewport; pure culling tests cover 1366×768 at minimum zoom.
 
 For database/container verification when access is available:
 
@@ -137,7 +149,7 @@ Stage 1 migration SQL was independently applied successfully to PostgreSQL 16. P
 - `apps/web/src/NetworkInspector.tsx`: actual network observations and segment controls.
 - `apps/web/src/World.tsx`: Phaser terrain, placeholder buildings, landing animation and camera; it never edits colony state.
 - `apps/web/src/main.tsx`: React HUD, construction/inspection and clock adapter; every gameplay mutation calls simulation functions.
-- `apps/api`: compatible Fastify endpoints and the original Prisma schema/migration. `/api/new-game` now returns schema version 6 and `/api/health` identifies prerelease 0.3.1-phase.2.
+- `apps/api`: compatible Fastify endpoints and the original Prisma schema/migration. `/api/new-game` now returns schema version 7 and `/api/health` identifies version 0.3.3.
 
 ## Docker and Railway
 

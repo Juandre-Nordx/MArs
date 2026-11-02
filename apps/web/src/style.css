@@ -578,3 +578,61 @@ nav {
 .inspector section[aria-label='Geological operations'] select {
   max-width: 100%;
 }
+
+.building-popup {
+  position: fixed;
+  z-index: 30;
+  right: 308px;
+  top: 115px;
+  width: min(370px, calc(100vw - 24px));
+  max-height: calc(100dvh - 195px);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid #bc8860;
+  border-radius: 8px;
+  background: #1c2329f7;
+  box-shadow: 0 12px 40px #0009;
+  font-size: 12px;
+}
+.building-popup-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  position: sticky;
+  top: -16px;
+  background: #1c2329;
+  z-index: 1;
+}
+.building-popup dl {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr;
+  gap: 6px;
+}
+.building-popup dd {
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 850px) {
+  .building-popup {
+    right: 12px;
+    top: 100px;
+    max-height: calc(100dvh - 160px);
+  }
+}
+.production-panel select {
+  display: block;
+  max-width: 100%;
+  margin: 8px 0;
+}
+.production-panel li {
+  padding: 10px 0;
+  border-bottom: 1px solid #49535a;
+}
+.production-panel progress {
+  width: 100%;
+  accent-color: #7ee0c0;
+}
+.production-panel small {
+  display: block;
+}

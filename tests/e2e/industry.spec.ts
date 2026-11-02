@@ -51,7 +51,7 @@ test('queues a geological survey, reveals only discovered minerals, and inspects
   const saved = await page.evaluate(() =>
     JSON.parse(localStorage.getItem('mars-first-colony-save')!),
   );
-  expect(saved.schemaVersion).toBe(6);
+  expect(saved.schemaVersion).toBe(7);
   expect(
     saved.world.chunks['1,1'].deposits.filter(
       (d: { discovered: boolean }) => d.discovered,

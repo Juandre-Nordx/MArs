@@ -3,7 +3,7 @@ import { WORLD_SIZE, type BuildingType } from './catalog.js';
 import type { Building, ColonyState } from './colony.js';
 import type { Tile } from './terrain.js';
 import { door, walkingPath } from './people.js';
-import { isUsable, cells, tileKey } from './networks.js';
+import { isUsable, cells, tileKey, connectionTiles } from './networks.js';
 import {
   chunkKey,
   chunkOf,
@@ -120,6 +120,12 @@ export const droneDefinitions = z
     survey: { capacity: 128, moveEnergy: 0.25, chargeRate: 4 },
     extractor: { capacity: 64, moveEnergy: 0.25, chargeRate: 2 },
   });
+export const droneFleetLimits = z
+  .object({
+    station: z.number().int().positive(),
+    global: z.number().int().positive(),
+  })
+  .parse({ station: 8, global: 800 });
 const scanSchema = z
   .object({
     id: z.string().min(1),
@@ -375,7 +381,10 @@ export function advanceIndustry(
       continue;
     }
     const definition = droneDefinitions[drone.kind];
-    const atHome = same(drone.position, home);
+    const atHome =
+      same(drone.position, home) ||
+      (drone.activity === 'charging' &&
+        connectionTiles(station, 'road').some((t) => same(t, drone.position)));
     if (
       atHome &&
       drone.battery === definition.capacity &&
@@ -639,7 +648,9 @@ export function validateIndustry(
   for (const d of drones) {
     if (
       buildings.get(d.stationId)?.type !== 'survey-station' ||
-      d.id !== `${d.stationId}-${d.kind}` ||
+      (d.id !== `${d.stationId}-${d.kind}` &&
+        (!/^produced-[1-9][0-9]*$/.test(d.id) ||
+          Number(d.id.slice(9)) >= state.production.nextDroneId)) ||
       d.battery > droneDefinitions[d.kind].capacity ||
       (d.kind === 'extractor' && occupied.has(tileKey(d.position)))
     )
@@ -670,7 +681,16 @@ export function validateIndustry(
   for (const b of state.buildings) {
     if (
       b.type === 'survey-station' &&
-      drones.filter((d) => d.stationId === b.id).length !== 2
+      (drones.filter((d) => d.stationId === b.id).length >
+        droneFleetLimits.station ||
+        !(['survey', 'extractor'] as const).every((kind) =>
+          drones.some(
+            (d) =>
+              d.id === `${b.id}-${kind}` &&
+              d.kind === kind &&
+              d.stationId === b.id,
+          ),
+        ))
     )
       issue('Station drone complement missing');
     if (isMine(b.type) && !mines.some((m) => m.buildingId === b.id))

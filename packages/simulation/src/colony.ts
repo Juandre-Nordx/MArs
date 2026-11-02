@@ -1,4 +1,10 @@
 import {
+  productionSchema,
+  emptyProduction,
+  advanceProduction,
+  validateProduction,
+} from './production.js';
+import {
   industrySchema,
   scanDefinitions,
   emptyIndustry,
@@ -56,7 +62,7 @@ import {
   initialImmigration,
   residentSchema,
 } from './people.js';
-export const SCHEMA_VERSION = 6 as const;
+export const SCHEMA_VERSION = 7 as const;
 export const STEP_MS = 1000;
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const buildingSchema = z
@@ -116,6 +122,7 @@ const baseColonySchema = z
     seed: integer,
     world: worldSchema,
     industry: industrySchema,
+    production: productionSchema,
     tick: integer,
     name: z.string().min(1).max(64),
     inventory: stockSchema,
@@ -230,6 +237,7 @@ export const colonySchema = baseColonySchema.superRefine((state, context) => {
       message: 'Resident population or identities are inconsistent',
     });
   validateIndustry(state, context);
+  validateProduction(state, context);
   const occupiedHomes = new Map<string, number>();
   for (const resident of state.residents) {
     if (
@@ -439,6 +447,7 @@ export function newGame(
     seed,
     world: newWorld(seed, layout),
     industry: emptyIndustry(),
+    production: emptyProduction(),
     tick: 0,
     name: 'First Colony',
     inventory: { ...landingCargo },
@@ -860,21 +869,25 @@ export function step(input: ColonyState): ColonyState {
     building.status =
       building.type === 'solar' && !daylight ? 'ready' : 'running';
   }
-  advanceIndustry(state, (buildingId, requested) => {
+  const drawPower = (buildingId: string, requested: number, exact = false) => {
     const grid = connected.get(`power:${buildingId}`);
     const electricity = grid ? power.get(grid.id) : undefined;
     if (!grid || !electricity) return 0;
-    const amount = Math.min(
-      requested,
-      Math.max(0, electricity.available - electricity.used),
-    );
+    const available = Math.max(0, electricity.available - electricity.used);
+    const amount =
+      exact && available < requested ? 0 : Math.min(requested, available);
     grid.demand += requested;
     telemetry.demand += requested;
     grid.allocated += amount;
     electricity.used += amount;
     telemetry.used += amount;
     return amount;
-  });
+  };
+  advanceProduction(
+    state,
+    (id, energy) => drawPower(id, energy, true) === energy,
+  );
+  advanceIndustry(state, drawPower);
   // A resident's ration is withdrawn from their assigned habitat network, including while walking in a suit.
   for (const resident of state.residents) {
     const building = state.buildings.find(
@@ -1016,6 +1029,7 @@ const version3Schema = baseColonySchema
     immigration: true,
     world: true,
     industry: true,
+    production: true,
   })
   .extend({ schemaVersion: z.literal(3), networkRulesVersion: z.literal(1) });
 const legacyBuildingSchema = buildingSchema.omit({
@@ -1026,6 +1040,7 @@ const legacyColonySchema = baseColonySchema
   .omit({
     world: true,
     industry: true,
+    production: true,
     infrastructure: true,
     networks: true,
     networkRulesVersion: true,
@@ -1041,8 +1056,18 @@ export function loadSave(value: unknown): ColonyState {
   const version = z
     .object({ schemaVersion: z.number() })
     .parse(value).schemaVersion;
+  if (version === 7)
+    return colonySchema.parse(refreshNetworks(baseColonySchema.parse(value)));
   if (version === 6) {
-    const parsed = baseColonySchema.parse(value);
+    const legacy = baseColonySchema
+      .omit({ production: true })
+      .extend({ schemaVersion: z.literal(6) })
+      .parse(value);
+    const parsed: ColonyState = {
+      ...legacy,
+      schemaVersion: SCHEMA_VERSION,
+      production: emptyProduction(),
+    };
     // Earlier schema-6 surveys took 1/2/4 ticks per tile. Preserve valid old
     // partial work when faster scan settings would otherwise reject the save.
     // Keep the final tick pending so discovery still requires an operational drone.
@@ -1056,7 +1081,7 @@ export function loadSave(value: unknown): ColonyState {
   }
   if (version === 5) {
     const parsed = baseColonySchema
-      .omit({ industry: true })
+      .omit({ industry: true, production: true })
       .extend({
         schemaVersion: z.literal(5),
         networkRulesVersion: z.union([
@@ -1071,13 +1096,14 @@ export function loadSave(value: unknown): ColonyState {
       ...parsed,
       schemaVersion: SCHEMA_VERSION,
       industry: emptyIndustry(),
+      production: emptyProduction(),
       networkRulesVersion: 4,
     };
     return colonySchema.parse(refreshNetworks(state));
   }
   if (version === 4) {
     const parsed = baseColonySchema
-      .omit({ world: true, industry: true })
+      .omit({ world: true, industry: true, production: true })
       .extend({
         schemaVersion: z.literal(4),
         networkRulesVersion: z.union([
@@ -1095,6 +1121,7 @@ export function loadSave(value: unknown): ColonyState {
         networkRulesVersion: 4,
         world: newWorld(parsed.seed),
         industry: emptyIndustry(),
+        production: emptyProduction(),
       }),
     );
   }
@@ -1105,6 +1132,7 @@ export function loadSave(value: unknown): ColonyState {
       schemaVersion: SCHEMA_VERSION,
       world: newWorld(legacy.seed),
       industry: emptyIndustry(),
+      production: emptyProduction(),
       networkRulesVersion: 4,
       residents: createResidents(legacy),
       nextResidentId: legacy.population + 1,
@@ -1119,6 +1147,7 @@ export function loadSave(value: unknown): ColonyState {
       schemaVersion: SCHEMA_VERSION,
       world: newWorld(legacy.seed),
       industry: emptyIndustry(),
+      production: emptyProduction(),
       residents: [],
       nextResidentId: legacy.population + 1,
       immigration: initialImmigration(legacy.tick),
