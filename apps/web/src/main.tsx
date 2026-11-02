@@ -1,3 +1,4 @@
+import { BuildingPopup } from './BuildingPopup';
 import { StorageOverview } from './StorageOverview';
 import { GeologyPanel } from './GeologyPanel';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -7,10 +8,6 @@ import {
   buildInfrastructure,
   infrastructureDefinitions,
   infrastructureTypeSchema,
-  networkFor,
-  extractionDefinitions,
-  isMine,
-  reserve,
   routePreview,
   type InfrastructureType,
   alerts,
@@ -26,15 +23,13 @@ import {
   resourceKeys,
   setSpeed,
   SOL_TICKS,
-  toggleBuilding,
   type BuildingType,
   type Category,
   type ClockState,
   type ColonyState,
-  type Stock,
   type Tile,
 } from '@mars/simulation';
-import { NetworkInspector, connectionLabels } from './NetworkInspector';
+import { NetworkInspector } from './NetworkInspector';
 import { ResidentsPanel } from './ResidentsPanel';
 import { ColonistInspector } from './ColonistInspector';
 import { World } from './World';
@@ -146,6 +141,7 @@ function App() {
         setDraft([]);
         setCategory(null);
         setSelectedResidentId(null);
+        setTile(null);
       }
     };
     window.addEventListener('keydown', cancel);
@@ -215,7 +211,6 @@ function App() {
     }
   }
   const building = colony && tile ? buildingAt(colony, tile) : undefined;
-  const definition = building ? buildingDefinitions[building.type] : undefined;
   useEffect(() => {
     inspectorRef.current?.scrollTo({ top: 0 });
   }, [building?.id, selectedResidentId]);
@@ -258,28 +253,6 @@ function App() {
           : 'Infrastructure command failed',
       );
     }
-  }
-  const connectedInventory = (key: keyof Stock) => {
-    if (!colony || !building) return 0;
-    const type =
-      key === 'energy'
-        ? 'power'
-        : key === 'water' || key === 'oxygen'
-          ? key
-          : null;
-    if (!type) return colony.inventory[key];
-    const network = networkFor(colony.networks, building.id, type);
-    return network ? reserve(colony, network) : 0;
-  };
-  function inventoryList(items: Partial<Stock>) {
-    return (
-      Object.entries(items)
-        .map(
-          ([key, value]) =>
-            `${resourceDefinitions[key as keyof Stock].label}: ${format(value)}`,
-        )
-        .join(' · ') || 'None'
-    );
   }
   return (
     <main className="game-shell">
@@ -504,112 +477,15 @@ function App() {
               onClose={() => setSelectedResidentId(null)}
             />
           )}
-          {building && definition ? (
-            <section data-testid="building-inspector">
-              <h3>{definition.name}</h3>
-              <p className="muted">
-                {building.type} · {building.id}
-              </p>
-              <dl>
-                <dt>Condition</dt>
-                <dd>{building.health}%</dd>
-                <dt>Workers assigned</dt>
-                <dd>{building.workers}</dd>
-                <dt>Power demand</dt>
-                <dd>{definition.power} kWh/tick</dd>
-                <dt>Production status</dt>
-                <dd data-testid="building-status">
-                  {connectionLabels[building.status] ?? building.status}
-                </dd>
-                <dt>Footprint</dt>
-                <dd>
-                  {definition.width} × {definition.height}
-                </dd>
-              </dl>
-              <h4>Required inputs / tick (rated)</h4>
-              <p>
-                {definition.generation
-                  ? 'Sunlight during daytime'
-                  : inventoryList(definition.inputs)}
-              </p>
-              <h4>Outputs / tick (rated)</h4>
-              <p>
-                {definition.generation
-                  ? `${definition.generation} kWh in daylight`
-                  : inventoryList(definition.outputs)}
-              </p>
-              <h4>Connected input inventory</h4>
-              <p>
-                {colony &&
-                  inventoryList(
-                    Object.fromEntries(
-                      Object.keys(definition.inputs).map((key) => [
-                        key,
-                        connectedInventory(key as keyof Stock),
-                      ]),
-                    ),
-                  )}
-              </p>
-              <h4>Connected output inventory</h4>
-              <p>
-                {colony &&
-                  inventoryList(
-                    Object.fromEntries(
-                      Object.keys(definition.outputs).map((key) => [
-                        key,
-                        connectedInventory(key as keyof Stock),
-                      ]),
-                    ),
-                  )}
-              </p>
-              {colony && isMine(building.type) && (
-                <section aria-label="Mine output">
-                  <h4>Local raw mineral buffer</h4>
-                  <p>
-                    {colony.industry.mines
-                      .find((m) => m.buildingId === building.id)
-                      ?.quantity.toFixed(2) ?? '0.00'}{' '}
-                    / {extractionDefinitions[building.type].capacity} kg ·{' '}
-                    {extractionDefinitions[building.type].technology} technology
-                  </p>
-                  <p>
-                    Requires a powered, usable mine and an extraction drone on
-                    site. Drones return to their survey station for charging.
-                    Cargo logistics and refining are pending; this buffer does
-                    not add usable metal or water to colony stock.
-                  </p>
-                </section>
-              )}
-              <h4>Local utility storage</h4>
-              <p>{inventoryList(building.stores)}</p>
-              <h4>Storage capacity</h4>
-              <p>{inventoryList(definition.capacity)}</p>
-              <button
-                onClick={() => {
-                  if (clock.current)
-                    publish(toggleBuilding(clock.current.colony, building.id));
-                }}
-              >
-                {building.enabled ? 'Disable building' : 'Enable building'}
-              </button>
-              <p className="muted">
-                Utilities use connected physical stores. Other cargo uses shared
-                colony logistics. Disabled storage retains its contents.
-              </p>
-            </section>
-          ) : !selectedResidentId ? (
+          {!building && !selectedResidentId && (
             <section>
-              <h3>
-                {colony?.phase === 'landing'
-                  ? 'Landing sequence'
-                  : 'Surface operations'}
-              </h3>
+              <h3>Surface operations</h3>
               <p className="muted">
-                Select a building footprint or use the roster below. Construct
-                facilities from the toolbar.
+                Select a building footprint or use the roster to open its
+                information popup.
               </p>
             </section>
-          ) : null}
+          )}
           {colony && (
             <WorldNavigator
               key={`navigation-${colony.seed}-${colony.landingZone.x}-${colony.landingZone.y}`}
@@ -733,6 +609,17 @@ function App() {
           </p>
         </aside>
       </section>
+      {colony && building && (
+        <BuildingPopup
+          key={building.id}
+          colony={colony}
+          building={building}
+          onClose={() => setTile(null)}
+          onCommand={(update) => {
+            if (clock.current) publish(update(clock.current.colony));
+          }}
+        />
+      )}
       <footer className="construction-toolbar">
         <nav aria-label="Construction categories">
           {[...categories, 'Infrastructure' as const].map((item) => (

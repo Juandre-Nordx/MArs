@@ -8,3 +8,4 @@ export * from './feedback.js';
 export * from './world.js';
 export * from './industry.js';
 export * from './storage.js';
+export * from './production.js';
