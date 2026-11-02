@@ -1,12 +1,26 @@
-# MARS: FIRST COLONY — V0.3.1 Phase 1
+# MARS: FIRST COLONY — V0.3.1 Phase 2
 
 An original browser-based isometric Mars colony prototype. Stage 2 extends the existing Stage 1 code; Phaser projection/camera controls, React/Vite, Fastify, npm workspaces and Railway configuration are preserved.
 
 ## Large-world foundation
 
-The first V0.3.1 implementation pass adds a 512×512 logical world, visible 16×16 terrain chunks, saved fog, deterministic regions and versioned map expansion. Use **World navigation** to visit coordinates or return to the colony. Panning does not explore terrain; construction outside explored land is blocked. Deposits are seed-defined and finite, with discovery separate from terrain exploration. Scanning, drones, mining and industry remain unavailable pending their required phases. [Phase 1 report, benchmarks and remaining work](docs/V0.3.1-PHASE1.md).
+The first V0.3.1 implementation pass adds a 512×512 logical world, visible 16×16 terrain chunks, saved fog, deterministic regions and versioned map expansion. Use **World navigation** to visit coordinates or return to the colony. Panning does not explore terrain; construction outside explored land is blocked. Deposits are seed-defined and finite, with discovery separate from terrain exploration. Geological scans, survey/extraction drones and finite local-buffer mining are now available. Cargo logistics, refining and factories remain pending. [Phase 1 report, benchmarks and remaining work](docs/V0.3.1-PHASE1.md).
 
-Gameplay saves now use schema 5, retaining schema 1–4 migration support. Existing colony positions, utilities, resources, residents and arrivals are preserved. The original 20×20 terrain stays unchanged.
+Gameplay saves now use schema 6, retaining schema 1–5 migration support. Existing colony positions, utilities, resources, residents and arrivals are preserved. The original 20×20 terrain stays unchanged.
+
+## Geological scanning, mining and storage
+
+Open **Mining** in the construction toolbar. Build a **Survey and drone station** on explored terrain and connect an electrical cable to any footprint side. Its paid construction includes one survey drone and one extraction drone with empty batteries. Extra solar generation and grid storage can help charge drones while life support continues.
+
+In **Geological operations**, choose a station, surface/subsurface/deep mode and inclusive region corners (up to 16×16 tiles, within 64 tiles per axis of the station). You can select terrain and use **Use selected tile as scan start/end**. **Queue geological scan** schedules an aerial drone trip; travel, scanning and charging take simulation ticks. Surface detects depth 0, subsurface up to 250 m, deep up to 1,000 m. Enable **Map terrain too** to explore those tiles independently; mineral discovery alone does not clear terrain fog. The guaranteed starter feedstocks are at tiles 21–27,24; use deep scanning to find buried lithium and ice. Simulation pause also pauses these jobs.
+
+Choose **Geological overlay** in Network display, then click a known deposit or choose it from **Discovered deposits**. The inspector shows the actual remaining reserve estimate, richness, depth and extraction technology. Unknown deposits never appear on this overlay or list. Repeated surveys cannot refill a deposit.
+
+Build a **Surface mine**, **Subsurface mine**, **Ice drill** or **Deep bore mine** directly on an explored, discovered compatible deposit, then connect electricity. All four extraction technologies are available in this prototype; there is no research unlock system. A ground extraction drone from a station within 96 Manhattan tiles is assigned automatically. It travels around buildings, mines only on site, and returns to its own station to recharge using real grid energy. If a route becomes blocked, the drone waits and retries against current footprints. Mine status and the drone/job list explain disabled buildings, missing power/drones, travel, charging, blocked routes, full buffers and depletion.
+
+**Storage overview** beside Save/Load displays all colony resource quantities/capacities and low/full warnings. Shared cargo (including metal and food) is counted once without invented building ownership; capacity contributors link to the buildings. Water, oxygen and grid energy show their actual physical stores. Each mine's raw minerals remain in a separate finite buffer. Drone batteries are shown separately after their charge has left the grid. Selection controls open the relevant building inspector.
+
+**Cargo transport and refining are pending.** Raw ore and raw ice never become usable metal/water or teleport into colony inventory. Full mines stop until a future cargo system exists. See [Phase 2 release notes](docs/V0.3.1-PHASE2.md) for rates, capacities, migration and validation.
 
 ## Automatic utility connections
 
@@ -37,8 +51,8 @@ The v0.2.1 foundation persists infrastructure, disabled/damaged segments, physic
 - One Starship command centre, exactly ten houses and eight support facilities: oxygen generator/tank, water recycler/tank, hydroponic farm, solar array, battery and warehouse. Nineteen total starter buildings, with unique IDs and collision-free, accessible footprints.
 - Ten colonists, input-funded oxygen/water/food production, population consumption, day/night solar power, finite battery charge/discharge, storage limits, operational statuses and reserve alerts.
 - Pause, 1×, 2× and 4× fixed-step simulation. HUD values come from colony state and the last completed tick.
-- Building inspection, footprint selection, roster, enable/disable controls and paid construction with valid/invalid footprint previews. Mining and industry remain locked.
-- Explicit browser Save/Load with strict version 5 validation and version 1/2/3/4 migrations. Cloud saves and login issuance are still unavailable.
+- Building inspection, footprint selection, roster, enable/disable controls and paid construction with valid/invalid footprint previews. Mining is unlocked; refining and factories remain pending.
+- Explicit browser Save/Load with strict version 6 validation and version 1/2/3/4/5 migrations. Cloud saves and login issuance are still unavailable.
 
 See [Stage 2 design, validation and limitations](docs/STAGE2.md) and [Railway deployment](docs/RAILWAY.md). The industrial expansion has started with large-world support; later phases remain pending.
 
@@ -81,10 +95,10 @@ npm run test:e2e
 Stop an existing development server before Playwright; its configuration owns the servers. With system Chromium available, use:
 
 ```sh
-PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm run test:e2e
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm run test:e2e -- --workers=1 --timeout=90000
 ```
 
-Current validation: production workspace build, 99 Vitest tests, sixteen Chromium browser checks, lint and formatting passed. Coverage includes seeded maps, exact starter counts/accessibility, idempotent deployment/load, production/consumption accounting, power/worker starvation, capacity limits over 1,500 ticks, clock determinism/speeds, save migration, footprint selection, paid construction and the original economic/camera checks. Earlier baseline layouts were inspected at 1366×768, 1280×720 and 1024×768. The new large-world browser checks use the Playwright default viewport; pure culling tests cover 1366×768 at minimum zoom.
+Phase 1 validation (historical): production workspace build, 99 Vitest tests, sixteen Chromium browser checks, lint and formatting passed. Current Phase 2 validation is recorded in [the release notes](docs/V0.3.1-PHASE2.md). Coverage includes seeded maps, exact starter counts/accessibility, idempotent deployment/load, production/consumption accounting, power/worker starvation, capacity limits over 1,500 ticks, clock determinism/speeds, save migration, footprint selection, paid construction and the original economic/camera checks. Earlier baseline layouts were inspected at 1366×768, 1280×720 and 1024×768. The new large-world browser checks use the Playwright default viewport; pure culling tests cover 1366×768 at minimum zoom.
 
 For database/container verification when access is available:
 
@@ -113,7 +127,7 @@ Stage 1 migration SQL was independently applied successfully to PostgreSQL 16. P
 - `apps/web/src/NetworkInspector.tsx`: actual network observations and segment controls.
 - `apps/web/src/World.tsx`: Phaser terrain, placeholder buildings, landing animation and camera; it never edits colony state.
 - `apps/web/src/main.tsx`: React HUD, construction/inspection and clock adapter; every gameplay mutation calls simulation functions.
-- `apps/api`: compatible Fastify endpoints and the original Prisma schema/migration. `/api/new-game` now returns schema version 5 and `/api/health` identifies prerelease 0.3.1-phase.1.
+- `apps/api`: compatible Fastify endpoints and the original Prisma schema/migration. `/api/new-game` now returns schema version 6 and `/api/health` identifies prerelease 0.3.1-phase.2.
 
 ## Docker and Railway
 

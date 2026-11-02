@@ -93,7 +93,7 @@ test('fully explored 512 world renders bounded chunks at far coordinates and pre
   const saved = await page.evaluate(() =>
     JSON.parse(localStorage.getItem('mars-first-colony-save')!),
   );
-  expect(saved.schemaVersion).toBe(5);
+  expect(saved.schemaVersion).toBe(6);
   expect(saved.world.chunks['31,31'].deposits[0].remainingQuantity).toBe(17);
   expect(saved.inventory).toEqual(state.inventory);
 });

@@ -36,7 +36,7 @@ type Props = {
   focus: Tile | null;
   selected: Tile | null;
   construction: BuildingType | null;
-  view: InfrastructureType | 'normal';
+  view: InfrastructureType | 'normal' | 'geology';
   infrastructureTool: { type: InfrastructureType; demolish: boolean } | null;
   draft: Tile[];
   routeValid: boolean;
@@ -229,13 +229,13 @@ export function World(props: Props) {
           const key = chunkKey(c.x, c.y),
             state = colony?.world.chunks[key];
           const cached = this.terrainChunks.get(key);
-          if (cached && cached.state === state) {
+          if (cached && cached.state === state?.explored) {
             tileCount += state?.explored.length ? CHUNK_SIZE * CHUNK_SIZE : 0;
             continue;
           }
           cached?.graphics.destroy();
           const graphics = this.add.graphics().setDepth(-20000);
-          this.terrainChunks.set(key, { graphics, state });
+          this.terrainChunks.set(key, { graphics, state: state?.explored });
           if (!state?.explored.length) {
             const corners = [
               { x: c.x * CHUNK_SIZE - 0.5, y: c.y * CHUNK_SIZE - 0.5 },
@@ -562,6 +562,46 @@ export function World(props: Props) {
           }
         }
         this.overlay.clear();
+        if (colony) {
+          if (view === 'geology')
+            for (const d of visibleChunks(camera.worldView).flatMap(
+              (c) =>
+                colony.world.chunks[chunkKey(c.x, c.y)]?.deposits.filter(
+                  (d) => d.discovered,
+                ) ?? [],
+            )) {
+              if (!nearViewport(d, camera.worldView)) continue;
+              const p = tileToWorld(d.x, d.y);
+              const color =
+                d.remainingQuantity <= 0
+                  ? 0x777777
+                  : d.depth > 250
+                    ? 0xe1c46d
+                    : d.depth > 0
+                      ? 0xc5a0ef
+                      : 0x80e5ca;
+              this.overlay
+                .fillStyle(color, 0.4)
+                .fillPoints(diamond(p.x, p.y), true)
+                .lineStyle(2, color)
+                .strokePoints(diamond(p.x, p.y), true)
+                .fillStyle(color)
+                .fillCircle(p.x, p.y, 5);
+            }
+          for (const drone of colony.industry.drones) {
+            if (!nearViewport(drone.position, camera.worldView)) continue;
+            const p = tileToWorld(drone.position.x, drone.position.y);
+            const y = p.y - (drone.kind === 'survey' ? 16 : 3);
+            const color = drone.kind === 'survey' ? 0x86efff : 0xffcc7d;
+            this.overlay
+              .fillStyle(0x151b22, 0.5)
+              .fillEllipse(p.x, p.y + 4, 15, 6)
+              .fillStyle(color)
+              .fillRect(p.x - 5, y - 3, 10, 6)
+              .lineStyle(1, color)
+              .lineBetween(p.x - 9, y, p.x + 9, y);
+          }
+        }
         const cells =
           construction && this.hover && colony
             ? footprint(construction, this.hover)

@@ -105,7 +105,7 @@ try {
       });
       assert.equal(response.status, 200);
       const game = await response.json();
-      assert.equal(game.colony.schemaVersion, 5);
+      assert.equal(game.colony.schemaVersion, 6);
       assert.equal(game.colony.world.width, 512);
       assert.ok(run.output().includes('startup_complete'));
       assert.ok(!run.output().includes('fixture-do-not-log-this'));

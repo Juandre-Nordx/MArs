@@ -60,7 +60,8 @@ describe('terrain and deployment', () => {
         10,
       );
       for (const type of Object.keys(buildingDefinitions).filter(
-        (type) => type !== 'housing',
+        (type) =>
+          type !== 'housing' && buildingDefinitions[type].category !== 'Mining',
       ))
         expect(state.buildings.filter((b) => b.type === type)).toHaveLength(1);
       expect(new Set(state.buildings.map((b) => b.id)).size).toBe(19);
@@ -96,7 +97,7 @@ describe('terrain and deployment', () => {
       inventory: { water: 33, oxygen: 24, metal: 8 },
     };
     const migrated = loadSave(legacy);
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.tick).toBe(42);
     expect(migrated.inventory).toEqual({
       ...emptyStock(),

@@ -108,7 +108,13 @@ describe('adjacent oxygen and road access', () => {
   it('migrates both previous network-rule versions without resource or entity changes', () => {
     const s = active();
     for (const version of [1, 2]) {
-      const next = loadSave({ ...s, networkRulesVersion: version });
+      const { industry: _industry, ...legacy } = s;
+      void _industry;
+      const next = loadSave({
+        ...legacy,
+        schemaVersion: 5,
+        networkRulesVersion: version,
+      });
       expect(next.networkRulesVersion).toBe(4);
       expect(next.inventory).toEqual(s.inventory);
       expect(next.infrastructure).toEqual(s.infrastructure);
