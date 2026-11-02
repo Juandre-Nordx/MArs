@@ -15,8 +15,8 @@ export const WorldNavigator = memo(function WorldNavigator({
   selected: Tile | null;
   onFocus: (tile: Tile) => void;
 }) {
-  const [x, setX] = useState('9'),
-    [y, setY] = useState('9');
+  const [x, setX] = useState(String(colony.landingZone.x)),
+    [y, setY] = useState(String(colony.landingZone.y));
   const explored = useMemo(
     () =>
       Object.values(colony.world.chunks).reduce(

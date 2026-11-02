@@ -14,9 +14,12 @@ describe('geological detection', () => {
     const base = generateDeposits(1, 1, 1)[0]!;
     for (const [depth, expected] of [
       [0, [true, true, true]],
-      [20, [false, true, true]],
+      [20, [true, true, true]],
+      [100, [true, true, true]],
+      [101, [false, true, true]],
       [250, [false, true, true]],
-      [251, [false, false, true]],
+      [500, [false, true, true]],
+      [501, [false, false, true]],
       [1000, [false, false, true]],
     ] as const) {
       const d: Deposit = { ...base, depth };

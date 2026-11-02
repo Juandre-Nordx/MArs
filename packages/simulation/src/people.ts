@@ -360,19 +360,23 @@ function entryPath(
   target: Tile,
 ): { entry: Tile; route: Tile[] } | null {
   const entries: Tile[] = [];
-  // Immigration enters from the original landing staging perimeter, not 512 tiles away.
+  // Use the local landing staging perimeter; old saved convoys retain their own exit.
   const edge = LEGACY_WORLD_SIZE - 1;
+  const origin =
+    state.world.generatorVersion === 2
+      ? { x: state.landingZone.x - 9, y: state.landingZone.y - 9 }
+      : { x: 0, y: 0 };
   for (let i = 0; i <= edge; i++)
     entries.push(
-      { x: 0, y: i },
-      { x: edge, y: i },
-      { x: i, y: 0 },
-      { x: i, y: edge },
+      { x: origin.x, y: origin.y + i },
+      { x: origin.x + edge, y: origin.y + i },
+      { x: origin.x + i, y: origin.y },
+      { x: origin.x + i, y: origin.y + edge },
     );
   entries.sort(
     (a, b) =>
-      Number(!(a.x === 0 && a.y === edge)) -
-        Number(!(b.x === 0 && b.y === edge)) ||
+      Number(!(a.x === origin.x && a.y === origin.y + edge)) -
+        Number(!(b.x === origin.x && b.y === origin.y + edge)) ||
       Math.abs(a.x - target.x) +
         Math.abs(a.y - target.y) -
         Math.abs(b.x - target.x) -

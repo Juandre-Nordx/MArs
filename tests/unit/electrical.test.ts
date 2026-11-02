@@ -1,9 +1,10 @@
+import { legacyGame as newGame } from '../helpers/landing.js';
+import { partiallyStockedColony } from '../helpers/resources.js';
 import { describe, it, expect } from 'vitest';
 import {
   buildInfrastructure,
   construct,
   deployColony,
-  newGame,
   refreshNetworks,
   networkFor,
   reserve,
@@ -13,7 +14,7 @@ import {
   routeBetween,
 } from '../../packages/simulation/src/index.js';
 function isolated() {
-  const s = deployColony(newGame());
+  const s = partiallyStockedColony();
   return refreshNetworks({
     ...s,
     infrastructure: s.infrastructure.filter((i) => i.type !== 'power'),

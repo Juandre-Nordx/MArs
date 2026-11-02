@@ -1,8 +1,8 @@
+import { legacyGame as newGame } from '../helpers/landing.js';
 import { expect, it } from 'vitest';
 import {
   construct,
   deployColony,
-  newGame,
   storageOverview,
   toggleBuilding,
 } from '../../packages/simulation/src/index.js';
@@ -22,7 +22,7 @@ it('reports shared cargo once, physical utilities by actual owner, and separate 
     ).toBe(actual);
   }
   expect(overview.resources.find((r) => r.resource === 'metal')).toMatchObject({
-    quantity: 60,
+    quantity: 140,
     scope: 'shared',
   });
   expect(

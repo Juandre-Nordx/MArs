@@ -231,14 +231,14 @@ export const buildingDefinitions: Record<BuildingType, BuildingDefinition> = {
   }),
 };
 export const landingCargo: Readonly<Stock> = Object.freeze({
-  water: 100,
-  oxygen: 100,
-  food: 60,
-  energy: 120,
-  metal: 80,
-  wastewater: 60,
-  carbonDioxide: 40,
-  nutrients: 80,
+  water: 200,
+  oxygen: 200,
+  food: 120,
+  energy: 240,
+  metal: 160,
+  wastewater: 120,
+  carbonDioxide: 80,
+  nutrients: 160,
 });
 export const populationRates = {
   oxygen: 0.01,

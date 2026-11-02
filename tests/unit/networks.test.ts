@@ -1,3 +1,4 @@
+import { partiallyStockedColony } from '../helpers/resources.js';
 import { describe, expect, it } from 'vitest';
 import {
   advance,
@@ -6,12 +7,10 @@ import {
   buildInfrastructure,
   colonySchema,
   connectionTiles,
-  deployColony,
   distributeCargo,
   infrastructureDefinitions,
   loadSave,
   networkFor,
-  newGame,
   port,
   rebuildNetworks,
   refreshNetworks,
@@ -23,7 +22,7 @@ import {
   type ColonyState,
   type InfrastructureType,
 } from '../../packages/simulation/src/index.js';
-const active = () => deployColony(newGame());
+const active = partiallyStockedColony;
 const house = (s: ColonyState) =>
   s.buildings.find((b) => b.type === 'housing')!;
 function cut(s: ColonyState, type: InfrastructureType, buildingId: string) {

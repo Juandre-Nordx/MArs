@@ -44,9 +44,9 @@ export const scanDefinitions = z
   })
   .strict()
   .parse({
-    surface: { maxDepth: 0, ticks: 1, energy: 0.5 },
-    subsurface: { maxDepth: 250, ticks: 2, energy: 1 },
-    deep: { maxDepth: 1000, ticks: 4, energy: 2 },
+    surface: { maxDepth: 100, ticks: 1, energy: 0.25 },
+    subsurface: { maxDepth: 500, ticks: 1, energy: 0.5 },
+    deep: { maxDepth: 1000, ticks: 2, energy: 1 },
   });
 export const extractionDefinitions = z
   .object({
@@ -206,9 +206,11 @@ export function scanTile(
   const c = chunkOf(tile),
     key = chunkKey(c.x, c.y);
   const previous = world.chunks[key];
-  const deposits = (previous?.deposits ?? generateDeposits(seed, c.x, c.y)).map(
-    (d) =>
-      same(d, tile) && canDetect(d, mode) ? { ...d, discovered: true } : d,
+  const deposits = (
+    previous?.deposits ??
+    generateDeposits(seed, c.x, c.y, world.generatorVersion)
+  ).map((d) =>
+    same(d, tile) && canDetect(d, mode) ? { ...d, discovered: true } : d,
   );
   return {
     ...world,

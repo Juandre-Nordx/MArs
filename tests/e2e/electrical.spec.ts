@@ -1,9 +1,8 @@
+import { legacyLandingZone as findLandingZone } from '../helpers/landing.js';
+import { partiallyStockedColony } from '../helpers/resources.js';
 import { expect, test } from '@playwright/test';
 import {
   buildInfrastructure,
-  deployColony,
-  findLandingZone,
-  newGame,
   refreshNetworks,
   routeBetween,
   step,
@@ -12,7 +11,7 @@ import { tileToWorld } from '../../apps/web/src/iso.js';
 test('a company receives electricity through a side cable and loses it when that contact is disabled', async ({
   page,
 }) => {
-  let s = deployColony(newGame());
+  let s = partiallyStockedColony();
   s = refreshNetworks({
     ...s,
     infrastructure: s.infrastructure.filter((i) => i.type !== 'power'),

@@ -1,7 +1,7 @@
+import { legacyGame as newGame } from '../helpers/landing.js';
 import { test, expect } from '@playwright/test';
 import {
   deployColony,
-  newGame,
   revealArea,
 } from '../../packages/simulation/src/index.js';
 async function navigate(

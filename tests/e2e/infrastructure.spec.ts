@@ -1,12 +1,18 @@
+import { useLegacyNewGames } from '../helpers/legacyBrowser.js';
+import {
+  legacyGame as newGame,
+  legacyLandingZone as findLandingZone,
+} from '../helpers/landing.js';
 import { expect, test, type Page } from '@playwright/test';
 import {
-  findLandingZone,
   connectionTiles,
   port,
   deployColony,
-  newGame,
 } from '../../packages/simulation/src/index.js';
 import { tileToWorld } from '../../apps/web/src/iso.js';
+test.beforeEach(async ({ page }) => {
+  await useLegacyNewGames(page);
+});
 async function start(page: Page) {
   await page.goto('/');
   await page.getByRole('button', { name: 'New game', exact: true }).click();
@@ -59,22 +65,22 @@ test('drag previews costs, cancels free, commits layered routes and demolishes w
   await expect(page.getByTestId('route-cost')).toContainText(
     'Cost: 0.75 metal',
   );
-  expect((await saved(page)).inventory.metal).toBe(80);
+  expect((await saved(page)).inventory.metal).toBe(160);
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Confirm route' })).toHaveCount(
     0,
   );
-  expect((await saved(page)).inventory.metal).toBe(80);
+  expect((await saved(page)).inventory.metal).toBe(160);
   await selectType(page, 'Water Pipe');
   await drag(page, { x: 2, y: 8 }, { x: 2, y: 10 });
   await page.getByRole('button', { name: 'Confirm route' }).click();
-  expect((await saved(page)).inventory.metal).toBe(79.25);
+  expect((await saved(page)).inventory.metal).toBe(159.25);
   await page.keyboard.press('Escape');
   await selectType(page, 'Electrical Cable');
   await drag(page, { x: 2, y: 8 }, { x: 2, y: 10 });
   await page.getByRole('button', { name: 'Confirm route' }).click();
   let state = await saved(page);
-  expect(state.inventory.metal).toBe(77.75);
+  expect(state.inventory.metal).toBe(157.75);
   expect(
     state.infrastructure.filter(
       (s: { x: number; y: number }) => s.x === 2 && s.y === 9,
@@ -89,7 +95,7 @@ test('drag previews costs, cancels free, commits layered routes and demolishes w
   );
   await page.getByRole('button', { name: 'Confirm route' }).click();
   state = await saved(page);
-  expect(state.inventory.metal).toBe(78.5);
+  expect(state.inventory.metal).toBe(158.5);
   expect(
     state.infrastructure.filter(
       (s: { x: number; y: number }) => s.x === 2 && s.y === 9,
@@ -197,5 +203,5 @@ test('invalid building overlap is red and right click cancels without spending',
   const p = await point(page, zone.x, zone.y);
   await page.mouse.click(p.x, p.y, { button: 'right' });
   await expect(page.getByTestId('route-preview')).toHaveCount(0);
-  expect((await saved(page)).inventory.metal).toBe(80);
+  expect((await saved(page)).inventory.metal).toBe(160);
 });

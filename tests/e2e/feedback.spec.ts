@@ -1,11 +1,13 @@
+import {
+  legacyGame as newGame,
+  legacyLandingZone as findLandingZone,
+} from '../helpers/landing.js';
 import { expect, test, type Page } from '@playwright/test';
 import {
   buildInfrastructure,
   connectionTiles,
   deployColony,
-  findLandingZone,
   networkFor,
-  newGame,
   refreshNetworks,
   reserve,
   walkingPath,

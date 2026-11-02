@@ -1,5 +1,6 @@
 import {
   industrySchema,
+  scanDefinitions,
   emptyIndustry,
   registerIndustryBuilding,
   minePlacement,
@@ -281,7 +282,10 @@ export const colonySchema = baseColonySchema.superRefine((state, context) => {
       previous = tile;
     }
   }
-  const expectedZone = findLandingZone(state.seed);
+  const expectedZone = findLandingZone(
+    state.seed,
+    state.world.generatorVersion === 1 ? 'legacy' : 'central',
+  );
   if (
     state.landingZone.x !== expectedZone.x ||
     state.landingZone.y !== expectedZone.y
@@ -425,23 +429,27 @@ function assignWorkers(buildings: Building[], population: number): Building[] {
     return { ...b, workers, stores: { ...b.stores } };
   });
 }
-export function newGame(seed = 1): ColonyState {
+export function newGame(
+  seed = 1,
+  layout: 'central' | 'legacy' = 'central',
+): ColonyState {
+  z.enum(['central', 'legacy']).parse(layout);
   return colonySchema.parse({
     schemaVersion: SCHEMA_VERSION,
     seed,
-    world: newWorld(seed),
+    world: newWorld(seed, layout),
     industry: emptyIndustry(),
     tick: 0,
     name: 'First Colony',
     inventory: { ...landingCargo },
     phase: 'landing',
-    landingZone: findLandingZone(seed),
+    landingZone: findLandingZone(seed, layout),
     buildings: [],
     population: 10,
     residents: createResidents({
       population: 10,
       buildings: [],
-      landingZone: findLandingZone(seed),
+      landingZone: findLandingZone(seed, layout),
     }),
     nextResidentId: 11,
     immigration: initialImmigration(),
@@ -1033,8 +1041,19 @@ export function loadSave(value: unknown): ColonyState {
   const version = z
     .object({ schemaVersion: z.number() })
     .parse(value).schemaVersion;
-  if (version === 6)
-    return colonySchema.parse(refreshNetworks(baseColonySchema.parse(value)));
+  if (version === 6) {
+    const parsed = baseColonySchema.parse(value);
+    // Earlier schema-6 surveys took 1/2/4 ticks per tile. Preserve valid old
+    // partial work when faster scan settings would otherwise reject the save.
+    // Keep the final tick pending so discovery still requires an operational drone.
+    const previousTicks = { surface: 1, subsurface: 2, deep: 4 };
+    for (const scan of parsed.industry.scans) {
+      const ticks = scanDefinitions[scan.mode].ticks;
+      if (scan.progress >= ticks && scan.progress < previousTicks[scan.mode])
+        scan.progress = ticks - 1;
+    }
+    return colonySchema.parse(refreshNetworks(parsed));
+  }
   if (version === 5) {
     const parsed = baseColonySchema
       .omit({ industry: true })
@@ -1136,7 +1155,7 @@ export function loadSave(value: unknown): ColonyState {
     })
     .strict()
     .parse(value);
-  const state = deployColony(newGame(legacy.seed));
+  const state = deployColony(newGame(legacy.seed, 'legacy'));
   state.name = legacy.name;
   state.tick = legacy.tick;
   state.inventory = { ...emptyStock(), ...legacy.inventory };

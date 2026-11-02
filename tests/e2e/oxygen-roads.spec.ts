@@ -1,10 +1,12 @@
+import {
+  legacyGame as newGame,
+  legacyLandingZone as findLandingZone,
+} from '../helpers/landing.js';
 import { expect, test } from '@playwright/test';
 import {
   buildInfrastructure,
   construct,
   deployColony,
-  findLandingZone,
-  newGame,
   refreshNetworks,
   routeBetween,
 } from '../../packages/simulation/src/index.js';
@@ -70,6 +72,6 @@ test('a home uses side-only oxygen and reports both adjacent road components', a
   const saved = await page.evaluate(() =>
     JSON.parse(localStorage.getItem('mars-first-colony-save')!),
   );
-  expect(saved.inventory.oxygen).toBe(100);
+  expect(saved.inventory.oxygen).toBe(200);
   expect(saved.networkRulesVersion).toBe(4);
 });

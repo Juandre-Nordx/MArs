@@ -1,3 +1,4 @@
+import { legacyGame as newGame } from '../helpers/landing.js';
 import { describe, expect, it } from 'vitest';
 import {
   CHUNK_SIZE,
@@ -12,7 +13,6 @@ import {
   worldSchema,
   terrainAt,
   deployColony,
-  newGame,
   loadSave,
   construct,
   placement,

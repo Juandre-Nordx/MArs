@@ -1,6 +1,10 @@
+import { useLegacyNewGames } from '../helpers/legacyBrowser.js';
+import { legacyLandingZone as findLandingZone } from '../helpers/landing.js';
 import { expect, test, type Page } from '@playwright/test';
-import { findLandingZone } from '../../packages/simulation/src/index.js';
 import { tileToWorld } from '../../apps/web/src/iso.js';
+test.beforeEach(async ({ page }) => {
+  await useLegacyNewGames(page);
+});
 async function start(page: Page, skip = true) {
   await page.goto('/');
   await page.getByRole('button', { name: 'New game', exact: true }).click();
@@ -131,7 +135,7 @@ test('construction preview rejects collision and places a paid housing unit', as
   const stored = await page.evaluate(() =>
     JSON.parse(localStorage.getItem('mars-first-colony-save')!),
   );
-  expect(stored.inventory.metal).toBe(72);
+  expect(stored.inventory.metal).toBe(152);
   expect(stored.credits).toBe(95);
   await page.getByRole('button', { name: 'Load', exact: true }).click();
   await expect(
