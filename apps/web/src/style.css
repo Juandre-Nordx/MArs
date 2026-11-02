@@ -544,3 +544,37 @@ nav {
   display: block;
   margin-top: 8px;
 }
+
+.survey-coordinates {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.survey-coordinates input {
+  width: 100%;
+  min-width: 0;
+}
+.inspector table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.inspector th,
+.inspector td {
+  text-align: left;
+  padding: 6px 3px;
+  border-bottom: 1px solid #39464b;
+  vertical-align: top;
+}
+.inspector th small {
+  display: block;
+  font-weight: normal;
+  color: #a5b8bb;
+}
+.inspector section[aria-label='Geological operations'] label {
+  display: block;
+  margin-block: 6px;
+}
+.inspector section[aria-label='Geological operations'] select {
+  max-width: 100%;
+}

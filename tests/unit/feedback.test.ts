@@ -137,8 +137,10 @@ describe('automatic water contacts', () => {
     expect(s.inventory.water).toBe(100);
   });
   it('migrates old water connection rules without moving resources or creating segments', () => {
-    const s = active(),
-      old = { ...s, networkRulesVersion: 1 };
+    const s = active();
+    const { industry: _industry, ...legacy } = s;
+    void _industry;
+    const old = { ...legacy, schemaVersion: 5, networkRulesVersion: 1 };
     const next = loadSave(JSON.parse(JSON.stringify(old)));
     expect(next.networkRulesVersion).toBe(4);
     expect(next.inventory).toEqual(s.inventory);

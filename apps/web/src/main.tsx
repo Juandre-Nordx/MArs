@@ -1,3 +1,5 @@
+import { StorageOverview } from './StorageOverview';
+import { GeologyPanel } from './GeologyPanel';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -6,6 +8,8 @@ import {
   infrastructureDefinitions,
   infrastructureTypeSchema,
   networkFor,
+  extractionDefinitions,
+  isMine,
   reserve,
   routePreview,
   type InfrastructureType,
@@ -37,7 +41,13 @@ import { World } from './World';
 import { WorldNavigator } from './WorldNavigator';
 import './style.css';
 const SAVE_KEY = 'mars-first-colony-save';
-const categories: Category[] = ['Housing', 'Life support', 'Power', 'Storage'];
+const categories: Category[] = [
+  'Housing',
+  'Life support',
+  'Power',
+  'Storage',
+  'Mining',
+];
 const format = (value: number) => value.toFixed(2);
 function App() {
   const clock = useRef<ClockState | null>(null);
@@ -66,13 +76,16 @@ function App() {
     demolish: boolean;
   } | null>(null);
   const [draft, setDraft] = useState<Tile[]>([]);
-  const [view, setView] = useState<InfrastructureType | 'normal'>('normal');
+  const [view, setView] = useState<InfrastructureType | 'normal' | 'geology'>(
+    'normal',
+  );
   const cancelPlacement = useCallback(() => {
     setConstruction(null);
     setInfrastructureTool(null);
     setDraft([]);
   }, []);
   const [message, setMessage] = useState('');
+  const [storageOpen, setStorageOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const publish = useCallback((state: ColonyState, reset = false) => {
     clock.current = {
@@ -325,6 +338,16 @@ function App() {
             <button disabled={!colony} onClick={save}>
               Save
             </button>
+            <button
+              disabled={!colony}
+              aria-pressed={storageOpen}
+              onClick={() => {
+                setStorageOpen(!storageOpen);
+                inspectorRef.current?.scrollTo({ top: 0 });
+              }}
+            >
+              Storage overview
+            </button>
             <button onClick={load}>Load</button>
           </div>
           <div className="time-controls" aria-label="Simulation speed">
@@ -352,16 +375,22 @@ function App() {
               aria-label="Network display"
               value={view}
               onChange={(event) =>
-                setView(event.target.value as InfrastructureType | 'normal')
+                setView(
+                  event.target.value as
+                    | InfrastructureType
+                    | 'normal'
+                    | 'geology',
+                )
               }
             >
               <option value="normal">Normal view</option>
+              <option value="geology">Geological overlay</option>
               <option value="water">Water network</option>
               <option value="oxygen">Oxygen network</option>
               <option value="power">Electrical network</option>
               <option value="road">Road network</option>
             </select>
-            <small>v0.3.1 Phase 1 · Temporary procedural artwork</small>
+            <small>v0.3.1 Phase 2 · Temporary procedural artwork</small>
           </label>
           <World
             colony={colony}
@@ -447,6 +476,20 @@ function App() {
         </div>
         <aside ref={inspectorRef} className="inspector">
           <span className="eyebrow">COLONY INSPECTOR</span>
+          {colony && storageOpen && (
+            <StorageOverview
+              colony={colony}
+              onInspect={(id) => {
+                const b = colony.buildings.find((b) => b.id === id);
+                if (b) {
+                  setSelectedResidentId(null);
+                  setTile({ x: b.x, y: b.y });
+                  setFocus({ x: b.x, y: b.y });
+                  setStorageOpen(false);
+                }
+              }}
+            />
+          )}
           <p data-testid="selection">
             {selectedResidentId
               ? 'Resident conversation'
@@ -519,6 +562,24 @@ function App() {
                     ),
                   )}
               </p>
+              {colony && isMine(building.type) && (
+                <section aria-label="Mine output">
+                  <h4>Local raw mineral buffer</h4>
+                  <p>
+                    {colony.industry.mines
+                      .find((m) => m.buildingId === building.id)
+                      ?.quantity.toFixed(2) ?? '0.00'}{' '}
+                    / {extractionDefinitions[building.type].capacity} kg ·{' '}
+                    {extractionDefinitions[building.type].technology} technology
+                  </p>
+                  <p>
+                    Requires a powered, usable mine and an extraction drone on
+                    site. Drones return to their survey station for charging.
+                    Cargo logistics and refining are pending; this buffer does
+                    not add usable metal or water to colony stock.
+                  </p>
+                </section>
+              )}
               <h4>Local utility storage</h4>
               <p>{inventoryList(building.stores)}</p>
               <h4>Storage capacity</h4>
@@ -633,6 +694,19 @@ function App() {
             )}
           </section>
           {colony && (
+            <GeologyPanel
+              colony={colony}
+              selected={tile}
+              onChange={publish}
+              onFocus={(p) => {
+                setSelectedResidentId(null);
+                setTile(p);
+                setFocus(p);
+                setView('geology');
+              }}
+            />
+          )}
+          {colony && (
             <details>
               <summary>Building roster ({colony.buildings.length})</summary>
               <div className="roster">
@@ -652,8 +726,8 @@ function App() {
             </details>
           )}
           <p className="muted">
-            Temporary original sprite artwork · Browser saves only · Mining and
-            industry locked
+            Temporary original sprite artwork · Browser saves only · Cargo
+            logistics and refining pending
           </p>
         </aside>
       </section>
@@ -674,7 +748,6 @@ function App() {
               {item}
             </button>
           ))}
-          <button disabled>Mining · locked</button>
           <button disabled>Industry · locked</button>
         </nav>
         {category === 'Infrastructure' && (

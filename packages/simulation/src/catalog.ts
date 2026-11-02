@@ -36,7 +36,12 @@ export const emptyStock = (): Stock => ({
   carbonDioxide: 0,
   nutrients: 0,
 });
-export type Category = 'Housing' | 'Life support' | 'Power' | 'Storage';
+export type Category =
+  | 'Housing'
+  | 'Life support'
+  | 'Power'
+  | 'Storage'
+  | 'Mining';
 export const buildingTypeSchema = z.enum([
   'starship',
   'housing',
@@ -48,6 +53,11 @@ export const buildingTypeSchema = z.enum([
   'solar',
   'battery',
   'warehouse',
+  'survey-station',
+  'surface-mine',
+  'underground-mine',
+  'ice-drill',
+  'deep-mine',
 ]);
 export type BuildingType = z.infer<typeof buildingTypeSchema>;
 export type BuildingDefinition = {
@@ -91,6 +101,41 @@ function definition(
 }
 // Rates per fixed tick. Explicit feedstocks, not abstract free resource sources.
 export const buildingDefinitions: Record<BuildingType, BuildingDefinition> = {
+  'survey-station': definition({
+    name: 'Survey and drone station',
+    category: 'Mining',
+    color: 0x78d9db,
+    power: 0.25,
+    cost: { metal: 20, credits: 10 },
+  }),
+  'surface-mine': definition({
+    name: 'Surface mine',
+    category: 'Mining',
+    color: 0xd5a16b,
+    power: 0.5,
+    cost: { metal: 12, credits: 6 },
+  }),
+  'underground-mine': definition({
+    name: 'Subsurface mine',
+    category: 'Mining',
+    color: 0xbba5d9,
+    power: 1,
+    cost: { metal: 18, credits: 8 },
+  }),
+  'ice-drill': definition({
+    name: 'Ice drill',
+    category: 'Mining',
+    color: 0xa8e4ed,
+    power: 0.75,
+    cost: { metal: 15, credits: 8 },
+  }),
+  'deep-mine': definition({
+    name: 'Deep bore mine',
+    category: 'Mining',
+    color: 0xe0d66a,
+    power: 1.5,
+    cost: { metal: 24, credits: 12 },
+  }),
   starship: definition({
     name: 'Starship command centre',
     category: 'Housing',

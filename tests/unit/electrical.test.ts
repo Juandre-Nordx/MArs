@@ -111,7 +111,13 @@ describe('automatic electrical contacts', () => {
   it('migrates all previous rule versions without adding energy or changing entities', () => {
     const s = deployColony(newGame());
     for (const version of [1, 2, 3]) {
-      const next = loadSave({ ...s, networkRulesVersion: version });
+      const { industry: _industry, ...legacy } = s;
+      void _industry;
+      const next = loadSave({
+        ...legacy,
+        schemaVersion: 5,
+        networkRulesVersion: version,
+      });
       expect(next.networkRulesVersion).toBe(4);
       expect(next.inventory).toEqual(s.inventory);
       expect(next.infrastructure).toEqual(s.infrastructure);

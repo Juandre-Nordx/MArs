@@ -44,7 +44,9 @@ export const WorldNavigator = memo(function WorldNavigator({
             width={CHUNK_SIZE}
             height={CHUNK_SIZE}
             fill="#c17b56"
-            opacity={0.25 + (0.75 * c.explored.length) / 256}
+            opacity={
+              c.explored.length ? 0.25 + (0.75 * c.explored.length) / 256 : 0
+            }
           />
         ))}
         <circle
@@ -112,12 +114,13 @@ export const WorldNavigator = memo(function WorldNavigator({
         <p data-testid="terrain-region">
           {known
             ? `Region: ${terrainAt(colony.seed, selected.x, selected.y).region.replaceAll('-', ' ')}`
-            : 'Unexplored terrain — survey exploration is planned for the next phases.'}
+            : 'Unexplored terrain — queue a geological scan with terrain mapping to explore.'}
         </p>
       )}
       <small>
         Panning does not explore terrain. Fog and mineral discoveries are saved
-        separately. Mining and industry are not available in this phase.
+        separately. Survey drones can map terrain independently of mineral
+        detection. Cargo logistics and refining remain pending.
       </small>
     </section>
   );
