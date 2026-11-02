@@ -1,6 +1,14 @@
-# MARS: FIRST COLONY — V0.3.3
+# MARS: FIRST COLONY — V0.3.3.1
 
 An original browser-based isometric Mars colony prototype. Stage 2 extends the existing Stage 1 code; Phaser projection/camera controls, React/Vite, Fastify, npm workspaces and Railway configuration are preserved.
+
+## Independent drone jobs
+
+V0.3.3.1 keeps one drone assigned to each survey job or mine. Overlapping survey areas wait for their current owner to finish, even when they come from different stations or use different scan modes. Other charged drones skip those waiting areas and take independent compatible queues. After finishing, a drone can take another reachable job directly when its battery has enough return reserve.
+
+Expand **Survey jobs and drones** to see each queue's assigned drone or why it is waiting. Job ownership stays reserved during travel, charging and blocked routes. Older saves with separate active surveys covering the same ground are requeued safely without resetting scan progress, deposits, batteries or stored resources. Drones can still share travel corridors and charging contacts.
+
+See [V0.3.3.1 fix and validation](docs/V0.3.3.1.md).
 
 ## Building information and drone production
 
@@ -120,7 +128,7 @@ Stop an existing development server before Playwright; its configuration owns th
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm run test:e2e -- --workers=1 --timeout=90000
 ```
 
-Phase 1 validation (historical): production workspace build, 99 Vitest tests, sixteen Chromium browser checks, lint and formatting passed. Current V0.3.3 validation (141 unit tests and 22 browser checks) is recorded in [the release notes](docs/V0.3.3.md); [Phase 2 results](docs/V0.3.1-PHASE2.md) are historical. Coverage includes seeded maps, exact starter counts/accessibility, idempotent deployment/load, production/consumption accounting, power/worker starvation, capacity limits over 1,500 ticks, clock determinism/speeds, save migration, footprint selection, paid construction and the original economic/camera checks. Earlier baseline layouts were inspected at 1366×768, 1280×720 and 1024×768. The new large-world browser checks use the Playwright default viewport; pure culling tests cover 1366×768 at minimum zoom.
+Phase 1 validation (historical): production workspace build, 99 Vitest tests, sixteen Chromium browser checks, lint and formatting passed. Current V0.3.3.1 validation (148 unit tests and six targeted browser checks) is recorded in [the fix notes](docs/V0.3.3.1.md); [V0.3.3 validation](docs/V0.3.3.md) covers the preceding full browser run; [Phase 2 results](docs/V0.3.1-PHASE2.md) are historical. Coverage includes seeded maps, exact starter counts/accessibility, idempotent deployment/load, production/consumption accounting, power/worker starvation, capacity limits over 1,500 ticks, clock determinism/speeds, save migration, footprint selection, paid construction and the original economic/camera checks. Earlier baseline layouts were inspected at 1366×768, 1280×720 and 1024×768. The new large-world browser checks use the Playwright default viewport; pure culling tests cover 1366×768 at minimum zoom.
 
 For database/container verification when access is available:
 
@@ -149,7 +157,7 @@ Stage 1 migration SQL was independently applied successfully to PostgreSQL 16. P
 - `apps/web/src/NetworkInspector.tsx`: actual network observations and segment controls.
 - `apps/web/src/World.tsx`: Phaser terrain, placeholder buildings, landing animation and camera; it never edits colony state.
 - `apps/web/src/main.tsx`: React HUD, construction/inspection and clock adapter; every gameplay mutation calls simulation functions.
-- `apps/api`: compatible Fastify endpoints and the original Prisma schema/migration. `/api/new-game` now returns schema version 7 and `/api/health` identifies version 0.3.3.
+- `apps/api`: compatible Fastify endpoints and the original Prisma schema/migration. `/api/new-game` now returns schema version 7 and `/api/health` identifies version 0.3.3.1.
 
 ## Docker and Railway
 

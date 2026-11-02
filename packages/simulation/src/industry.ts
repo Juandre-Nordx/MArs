@@ -322,6 +322,40 @@ export function registerIndustryBuilding(
   }
   return { ...state, industry };
 }
+export function surveyAreasOverlap(
+  a: Pick<Industry['scans'][number], 'from' | 'to'>,
+  b: Pick<Industry['scans'][number], 'from' | 'to'>,
+): boolean {
+  return (
+    a.from.x <= b.to.x &&
+    a.to.x >= b.from.x &&
+    a.from.y <= b.to.y &&
+    a.to.y >= b.from.y
+  );
+}
+// Old saves can contain distinct active orders for the same ground. Keep the
+// first owner and requeue conflicting work, preserving its cursor and reserves.
+export function reconcileSurveyAssignments(industry: Industry): void {
+  const counts = new Map<string, number>();
+  for (const d of industry.drones)
+    if (d.job?.type === 'scan')
+      counts.set(d.job.id, (counts.get(d.job.id) ?? 0) + 1);
+  // Duplicate ownership of one ID is corrupt, rather than an older area policy.
+  // Leave it intact for the save validator to reject.
+  if ([...counts.values()].some((count) => count > 1)) return;
+  const areas: Industry['scans'] = [];
+  for (const drone of industry.drones) {
+    if (drone.job?.type !== 'scan') continue;
+    const scan = industry.scans.find((s) => s.id === drone.job!.id);
+    if (!scan || scan.status !== 'active') continue;
+    if (areas.some((area) => surveyAreasOverlap(scan, area))) {
+      drone.job = null;
+      if (!['charging', 'returning'].includes(drone.activity))
+        drone.activity = 'idle';
+      scan.status = 'queued';
+    } else areas.push(scan);
+  }
+}
 function scanTarget(scan: Industry['scans'][number]): Tile {
   const width = scan.to.x - scan.from.x + 1,
     row = Math.floor(scan.cursor / width),
@@ -350,6 +384,7 @@ export function advanceIndustry(
   if (!state.industry.drones.length && !state.industry.mines.length) return;
   state.industry = structuredClone(state.industry);
   const industry = state.industry;
+  reconcileSurveyAssignments(industry);
   const deposits = new Map(
     Object.values(state.world.chunks).flatMap((c) =>
       c.deposits.map((d) => [d.id, d] as const),
@@ -372,6 +407,11 @@ export function advanceIndustry(
     industry.drones.flatMap((d) =>
       d.job ? [`${d.job.type}:${d.job.id}`] : [],
     ),
+  );
+  const reservedAreas = new Map(
+    industry.scans
+      .filter((s) => booked.has(`scan:${s.id}`))
+      .map((s) => [s.id, s]),
   );
   for (const drone of industry.drones) {
     const station = buildingById.get(drone.stationId)!;
@@ -413,26 +453,58 @@ export function advanceIndustry(
       if (drone.battery < definition.capacity) continue;
       drone.activity = 'idle';
     }
+    if (drone.job?.type === 'mine') {
+      const previous = buildingById.get(drone.job.id);
+      if (
+        previous &&
+        ['depleted', 'storage-full', 'disabled'].includes(previous.status)
+      ) {
+        booked.delete(`mine:${drone.job.id}`);
+        drone.job = null;
+        if (drone.activity !== 'charging') drone.activity = 'idle';
+      }
+    }
     if (!drone.job && powered(station) && drone.activity !== 'returning') {
       if (drone.kind === 'survey') {
         const scan = industry.scans.find(
           (s) =>
             s.stationId === station.id &&
-            s.status !== 'complete' &&
-            !booked.has(`scan:${s.id}`),
+            s.status === 'queued' &&
+            !booked.has(`scan:${s.id}`) &&
+            ![...reservedAreas.values()].some((area) =>
+              surveyAreasOverlap(s, area),
+            ) &&
+            drone.battery >=
+              (distance(drone.position, scanTarget(s)) +
+                distance(scanTarget(s), home)) *
+                definition.moveEnergy +
+                3,
         );
         if (scan) {
           drone.job = { type: 'scan', id: scan.id };
           scan.status = 'active';
+          reservedAreas.set(scan.id, scan);
         }
       } else {
         const mine = industry.mines.find((m) => {
           const b = buildingById.get(m.buildingId)!;
+          if (
+            !isMine(b.type) ||
+            b.status !== 'no-drone' ||
+            booked.has(`mine:${b.id}`) ||
+            distance(station, b) > 96
+          )
+            return false;
+          const endpoint = door(state, b);
+          const path = endpoint
+            ? walkingPath(state, drone.position, endpoint)
+            : null;
           return (
-            isMine(b.type) &&
-            b.status === 'no-drone' &&
-            !booked.has(`mine:${b.id}`) &&
-            distance(station, b) <= 96
+            !!endpoint &&
+            !!path &&
+            drone.battery >=
+              (path.length + distance(endpoint, home)) * definition.moveEnergy +
+                3
           );
         });
         if (mine) drone.job = { type: 'mine', id: mine.buildingId };
@@ -484,8 +556,10 @@ export function advanceIndustry(
       drone.activity === 'returning' ||
       drone.activity === 'charging'
     ) {
-      if (!atHome) target = home;
-      else if (drone.battery < definition.capacity) {
+      if (!atHome) {
+        target = home;
+        drone.activity = 'returning';
+      } else if (drone.battery < definition.capacity) {
         drone.activity = 'charging';
         continue;
       } else {
@@ -543,8 +617,10 @@ export function advanceIndustry(
         scan.cursor++;
         if (scan.cursor === scanArea(scan)) {
           scan.status = 'complete';
+          booked.delete(`scan:${scan.id}`);
+          reservedAreas.delete(scan.id);
           drone.job = null;
-          drone.activity = 'returning';
+          drone.activity = 'idle';
         }
       }
     }
@@ -642,6 +718,11 @@ export function validateIndustry(
     )
       issue('Invalid survey region or progress');
   }
+  const activeScans = scans.filter((s) => s.status === 'active');
+  for (let i = 0; i < activeScans.length; i++)
+    for (let j = i + 1; j < activeScans.length; j++)
+      if (surveyAreasOverlap(activeScans[i]!, activeScans[j]!))
+        issue('Overlapping survey areas have concurrent owners');
   const occupied = new Set(
     state.buildings.flatMap((b) => cells(b).map(tileKey)),
   );

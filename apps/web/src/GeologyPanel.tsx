@@ -5,6 +5,7 @@ import {
   extractionDefinitions,
   mineralDefinitions,
   requestScan,
+  surveyAreasOverlap,
   scanDefinitions,
   scanModeSchema,
   type ColonyState,
@@ -159,13 +160,35 @@ export function GeologyPanel({
       {message && <p role="status">{message}</p>}
       <details>
         <summary>Survey jobs and drones</summary>
-        {colony.industry.scans.map((s) => (
-          <p key={s.id}>
-            {s.id} · {s.mode} · {s.status} · {s.cursor}/
-            {(s.to.x - s.from.x + 1) * (s.to.y - s.from.y + 1)} tiles ·{' '}
-            {s.from.x},{s.from.y} → {s.to.x},{s.to.y}
-          </p>
-        ))}
+        <p>
+          One drone per job. Overlapping survey areas wait while other drones
+          take independent queues.
+        </p>
+        {colony.industry.scans.map((s) => {
+          const owner = colony.industry.drones.find(
+            (d) => d.job?.type === 'scan' && d.job.id === s.id,
+          );
+          const areaOwner = colony.industry.scans.find(
+            (other) =>
+              other.status === 'active' &&
+              other.id !== s.id &&
+              surveyAreasOverlap(s, other),
+          );
+          return (
+            <p key={s.id} data-testid={`survey-job-${s.id}`}>
+              {s.id} · {s.mode} · {s.status} · {s.cursor}/
+              {(s.to.x - s.from.x + 1) * (s.to.y - s.from.y + 1)} tiles ·{' '}
+              {s.from.x},{s.from.y} → {s.to.x},{s.to.y} ·{' '}
+              {owner
+                ? `Assigned drone: ${owner.id}`
+                : s.status === 'complete'
+                  ? 'Completed'
+                  : areaOwner
+                    ? `Waiting for survey area (${areaOwner.id})`
+                    : 'Waiting for an available survey drone'}
+            </p>
+          );
+        })}
         {colony.industry.drones.map((d) => (
           <p key={d.id}>
             {d.id} · {d.activity} · {d.position.x},{d.position.y} ·{' '}

@@ -363,7 +363,7 @@ function App() {
               <option value="power">Electrical network</option>
               <option value="road">Road network</option>
             </select>
-            <small>v0.3.1 Phase 2 · Temporary procedural artwork</small>
+            <small>v0.3.3.1 · Temporary procedural artwork</small>
           </label>
           <World
             colony={colony}
