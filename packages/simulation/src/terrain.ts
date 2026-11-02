@@ -71,7 +71,11 @@ export function generateTerrain(seed: number): TerrainTile[] {
   );
 }
 // All Stage 2 terrain is traversable. Surface rocks are purely decorative.
-export function findLandingZone(seed: number): Tile {
+export function findLandingZone(
+  seed: number,
+  layout: 'central' | 'legacy' = 'central',
+): Tile {
+  if (layout === 'central') return { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 };
   return {
     x: 9 + (hash(seed, 0, 0) % 3) - 1,
     y: 9 + (hash(seed, 1, 0) % 3) - 1,

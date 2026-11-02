@@ -1,9 +1,9 @@
+import { legacyGame as newGame } from './landing.js';
 import {
   buildInfrastructure,
   construct,
   deployColony,
   droneDefinitions,
-  newGame,
   revealArea,
   scanTile,
   step,

@@ -41,7 +41,7 @@ test('queues a geological survey, reveals only discovered minerals, and inspects
     'surface technology',
   );
   await expect(page.getByTestId('deposit-inspector')).toContainText(
-    '4021.00 kg',
+    '8042.00 kg',
   );
   await expect(page.getByLabel('Network display')).toHaveValue('geology');
   await expect(

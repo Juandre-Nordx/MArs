@@ -1,3 +1,4 @@
+import { legacyGame as newGame } from '../helpers/landing.js';
 import { describe, expect, it } from 'vitest';
 import {
   advance,
@@ -11,7 +12,6 @@ import {
   distributeCargo,
   loadSave,
   networkFor,
-  newGame,
   port,
   step,
   toggleArrivals,
@@ -44,7 +44,7 @@ describe('resident movement and consumption', () => {
     expect(s.residents).toHaveLength(10);
     expect(new Set(s.residents.map((r) => r.homeId)).size).toBe(10);
     expect(new Set(s.residents.map((r) => r.id)).size).toBe(10);
-    expect(s.inventory.water).toBe(100);
+    expect(s.inventory.water).toBe(200);
     expect(colonySchema.safeParse(s).success).toBe(true);
   });
   it('walks between real buildings without crossing footprints and preserves inputs', () => {
@@ -79,7 +79,7 @@ describe('resident movement and consumption', () => {
     expect(next.telemetry.consumed.water).toBeCloseTo(0.08);
     expect(next.telemetry.consumed.oxygen).toBeCloseTo(0.1);
     expect(next.telemetry.consumed.food).toBeCloseTo(0.03);
-    expect(run(s, 10).inventory.food).toBeCloseTo(59.7);
+    expect(run(s, 10).inventory.food).toBeCloseTo(119.7);
   });
   it('holds movement and arrivals while paused and remains frame-partition deterministic', () => {
     const s = vacancy(),

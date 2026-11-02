@@ -1,3 +1,8 @@
+import { legacyGame as newGame } from '../helpers/landing.js';
+import {
+  partiallyStockedColony,
+  productionCargo,
+} from '../helpers/resources.js';
 import { describe, expect, it } from 'vitest';
 import {
   accessible,
@@ -15,7 +20,6 @@ import {
   generateTerrain,
   landingCargo,
   loadSave,
-  newGame,
   placement,
   populationRates,
   resourceKeys,
@@ -25,7 +29,7 @@ import {
   toggleBuilding,
   type ColonyState,
 } from '../../packages/simulation/src/index.js';
-const active = (seed = 1) => deployColony(newGame(seed));
+const active = partiallyStockedColony;
 function disable(state: ColonyState, types: string[]) {
   return {
     ...state,
@@ -74,7 +78,7 @@ describe('terrain and deployment', () => {
     }
   });
   it('never redeploys when touchdown is repeated or active saves are loaded', () => {
-    const state = active();
+    const state = deployColony(newGame());
     expect(deployColony(state)).toBe(state);
     const restored = loadSave(JSON.parse(JSON.stringify(state)));
     expect(deployColony(restored)).toEqual(state);
@@ -133,7 +137,7 @@ describe('survival and power', () => {
         state.inventory[key] - 10 * populationRates[key],
         6,
       );
-    expect(state.inventory).toEqual(landingCargo);
+    expect(state.inventory).toEqual(productionCargo);
     expect(next.inventory.wastewater).toBeCloseTo(
       state.inventory.wastewater + 0.06,
       6,

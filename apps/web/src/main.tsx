@@ -612,6 +612,7 @@ function App() {
           ) : null}
           {colony && (
             <WorldNavigator
+              key={`navigation-${colony.seed}-${colony.landingZone.x}-${colony.landingZone.y}`}
               colony={colony}
               selected={tile}
               onFocus={(value) => {
@@ -695,6 +696,7 @@ function App() {
           </section>
           {colony && (
             <GeologyPanel
+              key={`geology-${colony.seed}-${colony.landingZone.x}-${colony.landingZone.y}`}
               colony={colony}
               selected={tile}
               onChange={publish}

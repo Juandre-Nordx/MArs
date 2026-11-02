@@ -24,8 +24,12 @@ export function GeologyPanel({
 }) {
   const stations = colony.buildings.filter((b) => b.type === 'survey-station');
   const [stationId, setStationId] = useState(''),
-    [mode, setMode] = useState<ScanMode>('surface'),
-    [region, setRegion] = useState({ x1: 21, y1: 24, x2: 27, y2: 24 }),
+    [mode, setMode] = useState<ScanMode>('subsurface'),
+    [region, setRegion] = useState(
+      colony.world.generatorVersion === 2
+        ? { x1: 261, y1: 264, x2: 267, y2: 264 }
+        : { x1: 21, y1: 24, x2: 27, y2: 24 },
+    ),
     [explore, setExplore] = useState(false),
     [message, setMessage] = useState('');
   const deposits = useMemo(

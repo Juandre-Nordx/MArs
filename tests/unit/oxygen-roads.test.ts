@@ -1,10 +1,10 @@
+import { legacyGame as newGame } from '../helpers/landing.js';
 import { describe, it, expect } from 'vitest';
 import {
   buildInfrastructure,
   construct,
   door,
   deployColony,
-  newGame,
   refreshNetworks,
   networkFor,
   loadSave,
@@ -76,7 +76,7 @@ describe('adjacent oxygen and road access', () => {
     expect(networkFor(s.networks, tank.id, 'oxygen')).toBeDefined();
     s = toggleSegment(s, `oxygen:${right.x},${right.y}`);
     expect(networkFor(s.networks, tank.id, 'oxygen')).toBeUndefined();
-    expect(s.inventory.oxygen).toBe(100);
+    expect(s.inventory.oxygen).toBe(200);
   });
   it('exposes both adjacent road components without routing through a building', () => {
     let s = construct(without('road'), 'housing', { x: 2, y: 9 });

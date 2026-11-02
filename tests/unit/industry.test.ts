@@ -1,11 +1,12 @@
+import { legacyGame as newGame } from '../helpers/landing.js';
 import { describe, expect, it } from 'vitest';
 import {
   colonySchema,
+  distributeCargo,
   construct,
   deployColony,
   discoveredDeposits,
   loadSave,
-  newGame,
   placement,
   requestScan,
   revealArea,
@@ -21,6 +22,8 @@ describe('survey drones and saves', () => {
     expect(s.inventory.metal).toBe(base.inventory.metal - 20);
     expect(s.credits).toBe(base.credits - 10);
     expect(s.industry.drones.every((d) => d.battery === 0)).toBe(true);
+    s.inventory.energy = 120;
+    distributeCargo(s);
     const next = step(s);
     const chargedEnergy = next.industry.drones.reduce(
       (n, d) => n + d.battery,

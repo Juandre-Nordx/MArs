@@ -1,3 +1,4 @@
+import { legacyGame as newGame } from '../helpers/landing.js';
 import { describe, expect, it } from 'vitest';
 import {
   advance,
@@ -5,7 +6,6 @@ import {
   applyRecipe,
   landingCargo,
   loadSave,
-  newGame,
   step,
   transfer,
 } from '../../packages/simulation/src/index.js';
@@ -33,7 +33,7 @@ describe('deterministic simulation', () => {
   it('does not share mutable starting inventory', () => {
     const a = newGame();
     a.inventory.water = 0;
-    expect(newGame().inventory.water).toBe(100);
+    expect(newGame().inventory.water).toBe(200);
   });
   it('rejects invalid time and unsupported save versions', () => {
     expect(() => advance({ colony: newGame(), remainderMs: 0 }, -1)).toThrow();

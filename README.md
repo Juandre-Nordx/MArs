@@ -8,11 +8,21 @@ The first V0.3.1 implementation pass adds a 512×512 logical world, visible 16×
 
 Gameplay saves now use schema 6, retaining schema 1–5 migration support. Existing colony positions, utilities, resources, residents and arrivals are preserved. The original 20×20 terrain stays unchanged.
 
+## Central landings
+
+New colonies land at **256,256**, in the middle of the 512×512 map, with the 20×20 explored starting area around the colony. Starter mineral deposits move nearby to **261–267,264**, preserving their seeded mineral types, richness and doubled reserves. Immigration uses the local staging perimeter. Existing saves keep their original colony, world, discoveries and convoy locations; older colonies retain their nearby deposits at 21–27,24.
+
+## More supplies and easier discovery
+
+New colonies start with double the resource shipment: 200 water, 200 oxygen, 120 food, 240 energy, 160 metal, 120 wastewater, 80 carbon dioxide and 160 nutrients (kg, except energy in kWh). Existing storage holds the entire shipment. Newly generated mineral deposits contain twice their former reserves. Existing saved inventory and already materialized deposits retain their saved quantities, including depleted reserves; loading or rescanning never refills them.
+
+Scanners now default to subsurface mode, reaching every currently generated deposit depth. Shallow scans reach 100 m and subsurface scans reach 500 m. Subsurface/deep scans complete each tile twice as quickly, and all scan modes use half the energy.
+
 ## Geological scanning, mining and storage
 
 Open **Mining** in the construction toolbar. Build a **Survey and drone station** on explored terrain and connect an electrical cable to any footprint side. Its paid construction includes one survey drone and one extraction drone with empty batteries. Extra solar generation and grid storage can help charge drones while life support continues.
 
-In **Geological operations**, choose a station, surface/subsurface/deep mode and inclusive region corners (up to 16×16 tiles, within 64 tiles per axis of the station). You can select terrain and use **Use selected tile as scan start/end**. **Queue geological scan** schedules an aerial drone trip; travel, scanning and charging take simulation ticks. Surface detects depth 0, subsurface up to 250 m, deep up to 1,000 m. Enable **Map terrain too** to explore those tiles independently; mineral discovery alone does not clear terrain fog. The guaranteed starter feedstocks are at tiles 21–27,24; use deep scanning to find buried lithium and ice. Simulation pause also pauses these jobs.
+In **Geological operations**, choose a station, surface/subsurface/deep mode and inclusive region corners (up to 16×16 tiles, within 64 tiles per axis of the station). You can select terrain and use **Use selected tile as scan start/end**. **Queue geological scan** schedules an aerial drone trip; travel, scanning and charging take simulation ticks. Surface detects deposits down to 100 m, the default subsurface mode down to 500 m (covering all currently generated depths), and deep mode down to 1,000 m. Subsurface/deep scanning takes half as many ticks as before, and every mode uses half the scan energy. Enable **Map terrain too** to explore those tiles independently; mineral discovery alone does not clear terrain fog. The guaranteed starter feedstocks are at tiles 261–267,264 for new central colonies (21–27,24 in older worlds); the default subsurface scan can find buried lithium and ice. Simulation pause also pauses these jobs.
 
 Choose **Geological overlay** in Network display, then click a known deposit or choose it from **Discovered deposits**. The inspector shows the actual remaining reserve estimate, richness, depth and extraction technology. Unknown deposits never appear on this overlay or list. Repeated surveys cannot refill a deposit.
 

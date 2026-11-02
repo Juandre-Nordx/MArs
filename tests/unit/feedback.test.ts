@@ -1,3 +1,4 @@
+import { legacyGame as newGame } from '../helpers/landing.js';
 import { describe, expect, it } from 'vitest';
 import {
   buildInfrastructure,
@@ -7,7 +8,6 @@ import {
   distributeCargo,
   loadSave,
   networkFor,
-  newGame,
   refreshNetworks,
   residentFeedback,
   type ColonyState,
@@ -37,7 +37,7 @@ describe('colonist conversations', () => {
   it('does not claim a global tank supplies a disconnected home', () => {
     const s = noWater(active()),
       f = residentFeedback(s, 'colonist-1')!;
-    expect(s.inventory.water).toBe(100);
+    expect(s.inventory.water).toBe(200);
     expect(f.mood).toBe('Distressed');
     expect(f.concerns.some((i) => i.code === 'water-connection')).toBe(true);
     expect(f.happyAbout.some((i) => i.code === 'water')).toBe(false);
@@ -134,7 +134,7 @@ describe('automatic water contacts', () => {
     expect(networkFor(s.networks, tank.id, 'water')).toBeDefined();
     s = buildInfrastructure(s, 'water', [right], true);
     expect(networkFor(s.networks, tank.id, 'water')).toBeUndefined();
-    expect(s.inventory.water).toBe(100);
+    expect(s.inventory.water).toBe(200);
   });
   it('migrates old water connection rules without moving resources or creating segments', () => {
     const s = active();

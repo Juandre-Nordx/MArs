@@ -1,10 +1,10 @@
+import { legacyGame as newGame } from '../helpers/landing.js';
 import { expect, test } from '@playwright/test';
 import {
   buildInfrastructure,
   construct,
   deployColony,
   networkFor,
-  newGame,
   port,
   step,
   walkingPath,

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { WORLD_SIZE, CHUNK_SIZE, LEGACY_WORLD_SIZE } from './catalog.js';
-import { hash, type Tile } from './terrain.js';
+import { hash, findLandingZone, type Tile } from './terrain.js';
 export const chunkKey = (x: number, y: number) => `${x},${y}`;
 export const chunkOf = (tile: Tile): Tile => ({
   x: Math.floor(tile.x / CHUNK_SIZE),
@@ -84,7 +84,7 @@ export const worldSchema = z
     version: z.literal(1),
     width: z.literal(WORLD_SIZE),
     height: z.literal(WORLD_SIZE),
-    generatorVersion: z.literal(1),
+    generatorVersion: z.union([z.literal(1), z.literal(2)]),
     legacyTerrainSize: z.literal(LEGACY_WORLD_SIZE),
     chunks: z.record(z.string(), chunkSchema),
   })
@@ -118,6 +118,7 @@ export function generateDeposits(
   seed: number,
   cx: number,
   cy: number,
+  generatorVersion: 1 | 2 = 1,
 ): Deposit[] {
   const result: Deposit[] = [];
   const starter: z.infer<typeof mineralSchema>[] = [
@@ -129,21 +130,21 @@ export function generateDeposits(
     'carbon',
     'ice',
   ];
-  const entries =
-    cx === 1 && cy === 1
-      ? starter
-      : Array.from({ length: 3 }, (_, i) => {
-          const h = hash(seed + i + 301, cx, cy);
-          return h % 97 === 0
-            ? ('uranium' as const)
-            : mineralSchema.options[h % 9]!;
-        });
+  const starterChunk = generatorVersion === 1 ? 1 : WORLD_SIZE / CHUNK_SIZE / 2;
+  const nearColony = cx === starterChunk && cy === starterChunk;
+  const entries = nearColony
+    ? starter
+    : Array.from({ length: 3 }, (_, i) => {
+        const h = hash(seed + i + 301, cx, cy);
+        return h % 97 === 0
+          ? ('uranium' as const)
+          : mineralSchema.options[h % 9]!;
+      });
   for (const [i, resource] of entries.entries()) {
-    const h = hash(seed + 991 + i, cx, cy),
+    const h = hash(seed + 991 + i, nearColony ? 1 : cx, nearColony ? 1 : cy),
       technology = mineralDefinitions[resource].technology;
-    const x = cx * CHUNK_SIZE + (cx === 1 && cy === 1 ? 5 + i : h % CHUNK_SIZE);
-    const y =
-      cy * CHUNK_SIZE + (cx === 1 && cy === 1 ? 8 : (h >>> 8) % CHUNK_SIZE);
+    const x = cx * CHUNK_SIZE + (nearColony ? 5 + i : h % CHUNK_SIZE);
+    const y = cy * CHUNK_SIZE + (nearColony ? 8 : (h >>> 8) % CHUNK_SIZE);
     const subsurface = technology !== 'surface';
     result.push({
       id: `deposit-${cx}-${cy}-${i}`,
@@ -153,27 +154,34 @@ export function generateDeposits(
       classification: subsurface ? 'subsurface' : 'surface',
       depth: subsurface ? 20 + (h % 481) : 0,
       richness: (4 + (h % 7)) / 10,
-      initialQuantity: 1000 + (h % 4001),
-      remainingQuantity: 1000 + (h % 4001),
+      initialQuantity: 2 * (1000 + (h % 4001)),
+      remainingQuantity: 2 * (1000 + (h % 4001)),
       technology,
       discovered: false,
     });
   }
   return result;
 }
-export function newWorld(seed: number): WorldState {
+// Legacy is the compatibility default; newGame explicitly requests its layout.
+export function newWorld(
+  seed: number,
+  layout: 'central' | 'legacy' = 'legacy',
+): WorldState {
+  const zone = findLandingZone(seed, layout);
+  const from =
+    layout === 'central' ? { x: zone.x - 9, y: zone.y - 9 } : { x: 0, y: 0 };
   return revealArea(
     {
       version: 1,
       width: WORLD_SIZE,
       height: WORLD_SIZE,
-      generatorVersion: 1,
+      generatorVersion: layout === 'central' ? 2 : 1,
       legacyTerrainSize: 20,
       chunks: {},
     },
     seed,
-    { x: 0, y: 0 },
-    { x: 19, y: 19 },
+    from,
+    { x: from.x + 19, y: from.y + 19 },
   );
 }
 export function isExplored(world: WorldState, tile: Tile): boolean {
@@ -229,7 +237,9 @@ export function revealArea(
         x: cx,
         y: cy,
         explored: [...explored].sort((a, b) => a - b),
-        deposits: previous?.deposits ?? generateDeposits(seed, cx, cy),
+        deposits:
+          previous?.deposits ??
+          generateDeposits(seed, cx, cy, world.generatorVersion),
       };
     }
   return { ...world, chunks };

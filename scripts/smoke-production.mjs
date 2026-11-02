@@ -107,6 +107,8 @@ try {
       const game = await response.json();
       assert.equal(game.colony.schemaVersion, 6);
       assert.equal(game.colony.world.width, 512);
+      assert.deepEqual(game.colony.landingZone, { x: 256, y: 256 });
+      assert.equal(game.colony.world.generatorVersion, 2);
       assert.ok(run.output().includes('startup_complete'));
       assert.ok(!run.output().includes('fixture-do-not-log-this'));
       console.log(
