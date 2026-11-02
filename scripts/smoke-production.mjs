@@ -66,6 +66,7 @@ async function waitForServer(run, port) {
       throw new Error(`Startup exited early: ${run.output()}`);
     try {
       const r = await globalThis.fetch(`http://127.0.0.1:${port}/api/health`);
+      await r.arrayBuffer();
       if (r.ok) return;
     } catch {
       /* Wait for binding. */
@@ -92,12 +93,19 @@ try {
       });
       const script = html.match(/src="([^"]+\.js)"/);
       assert.ok(script, 'Built HTML has no JS bundle');
-      assert.equal(
-        (await globalThis.fetch(new URL(script[1], base))).status,
-        200,
-      );
-      assert.equal((await globalThis.fetch(`${base}/api/ready`)).status, 503);
-      assert.equal((await globalThis.fetch(`${base}/api/health`)).status, 200);
+      // Drain responses before shutdown: an unread large asset can keep its
+      // HTTP connection active and make a healthy server miss the stop deadline.
+      const asset = await globalThis.fetch(new URL(script[1], base));
+      assert.equal(asset.status, 200);
+      assert.ok((await asset.arrayBuffer()).byteLength > 0);
+      for (const [path, status] of [
+        ['/api/ready', 503],
+        ['/api/health', 200],
+      ]) {
+        const result = await globalThis.fetch(`${base}${path}`);
+        assert.equal(result.status, status);
+        await result.arrayBuffer();
+      }
       const response = await globalThis.fetch(`${base}/api/new-game`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
