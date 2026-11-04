@@ -6,6 +6,7 @@ import {
 } from './production.js';
 import {
   industrySchema,
+  reconcileSurveyAssignments,
   scanDefinitions,
   emptyIndustry,
   registerIndustryBuilding,
@@ -1056,8 +1057,11 @@ export function loadSave(value: unknown): ColonyState {
   const version = z
     .object({ schemaVersion: z.number() })
     .parse(value).schemaVersion;
-  if (version === 7)
-    return colonySchema.parse(refreshNetworks(baseColonySchema.parse(value)));
+  if (version === 7) {
+    const parsed = baseColonySchema.parse(value);
+    reconcileSurveyAssignments(parsed.industry);
+    return colonySchema.parse(refreshNetworks(parsed));
+  }
   if (version === 6) {
     const legacy = baseColonySchema
       .omit({ production: true })
@@ -1077,6 +1081,7 @@ export function loadSave(value: unknown): ColonyState {
       if (scan.progress >= ticks && scan.progress < previousTicks[scan.mode])
         scan.progress = ticks - 1;
     }
+    reconcileSurveyAssignments(parsed.industry);
     return colonySchema.parse(refreshNetworks(parsed));
   }
   if (version === 5) {
