@@ -1,6 +1,12 @@
-# MARS: FIRST COLONY — V0.3.3.1
+# MARS: FIRST COLONY — V0.4
 
 An original browser-based isometric Mars colony prototype. Stage 2 extends the existing Stage 1 code; Phaser projection/camera controls, React/Vite, Fastify, npm workspaces and Railway configuration are preserved.
+
+## Catalogue administration
+
+V0.4 adds `/admin`: protected administrator sessions, resource/building/recipe editors, original isometric placeholder art, durable image uploads, validated drafts, atomic immutable publication and audit history. New colonies select a published catalogue; schema-8 browser saves embed their catalogue so future edits never silently change them. Unsupported industry remains planned. Existing colony gameplay and the drone fixes below are preserved.
+
+See [V0.4 setup, exact configuration, capability limits and verification](docs/V0.4.md). Administration needs PostgreSQL; gameplay continues without it. Production migrations and initial administrator creation are explicit operator commands, never startup actions.
 
 ## Independent drone jobs
 
@@ -82,7 +88,7 @@ The v0.2.1 foundation persists infrastructure, disabled/damaged segments, physic
 - Ten colonists, input-funded oxygen/water/food production, population consumption, day/night solar power, finite battery charge/discharge, storage limits, operational statuses and reserve alerts.
 - Pause, 1×, 2× and 4× fixed-step simulation. HUD values come from colony state and the last completed tick.
 - Building inspection, footprint selection, roster, enable/disable controls and paid construction with valid/invalid footprint previews. Mining is unlocked; refining and factories remain pending.
-- Explicit browser Save/Load with strict version 7 validation and version 1/2/3/4/5/6 migrations. Cloud saves and login issuance are still unavailable.
+- Explicit browser Save/Load with strict version 8 validation and version 1–7 migrations. Administrator login is available at `/admin`; player registration and cloud saves remain unavailable.
 
 See [Stage 2 design, validation and limitations](docs/STAGE2.md) and [Railway deployment](docs/RAILWAY.md). The industrial expansion has started with large-world support; later phases remain pending.
 
@@ -95,7 +101,7 @@ cp .env.example .env
 set -a
 . ./.env
 set +a
-npm ci --no-audit --no-fund
+PRISMA_SKIP_POSTINSTALL_GENERATE=true npm ci --no-audit --no-fund
 npm run db:generate
 docker compose up -d db
 npm run db:migrate
@@ -105,11 +111,13 @@ npm run dev
 
 Vite serves the web application on port 5173 and proxies `/api` to Fastify on port 3001. Click **New game**, watch or skip the landing, select a building and try the toolbar. A new game replaces unsaved progress after confirmation. **Save** stores one slot in this browser; **Load** validates before replacing current state. No automatic or cloud save is implied.
 
-For gameplay development without database integration, `npm ci`, `npm run build`, `npm run dev` is sufficient. New-game creation, health and local browser saves do not access PostgreSQL. Prisma-backed readiness and session verification require a generated client and PostgreSQL. Prisma CLI needs `DATABASE_URL` exported as above; the server does not auto-load `.env`.
+For gameplay development without database integration, installation, client generation, build and dev startup are sufficient. Do not export `DATABASE_URL` for that mode. The server never applies migrations. Default new games use the current publication when available; an unavailable catalogue database produces an explicit built-in fallback warning. Explicit catalogue selections fail if unresolved. See [admin setup](docs/V0.4.md) for the private initial-password command and `ADMIN_ORIGIN`.
 
-In this managed environment, dependencies installed successfully using the configured proxy with sandbox network access. Prisma engine downloads from `binaries.prisma.sh` still return HTTP 403; checksum/TLS verification remains enabled. The earlier domain addition is saved in the environment draft but is not applied to this runtime. Review/save and publish the configuration in environment settings before retrying database setup. No live Railway credentials or database URL were provided here.
+The official JavaScript Prisma client/generator works without native query-engine downloads. The migration CLI still requires the Prisma schema engine; its download host is blocked in this managed environment. Test migrations were applied only to a disposable local PostgreSQL container, with TLS/checksum verification unchanged.
 
 ## Verification
+
+V0.4: 169 unit/PostgreSQL integration tests and all 25 Chromium tests passed, along with production build/startup, lint, formatting and world performance checks. A clean Node 22 container install/build/startup also passed with the managed proxy CA mounted read-only. The standard deployment Docker build remains blocked by the managed CA trust boundary; see [exact results and setup limits](docs/V0.4.md). No production migration or deployment was performed.
 
 ```sh
 npm run build
@@ -128,7 +136,7 @@ Stop an existing development server before Playwright; its configuration owns th
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium npm run test:e2e -- --workers=1 --timeout=90000
 ```
 
-Phase 1 validation (historical): production workspace build, 99 Vitest tests, sixteen Chromium browser checks, lint and formatting passed. Current V0.3.3.1 validation (148 unit tests and six targeted browser checks) is recorded in [the fix notes](docs/V0.3.3.1.md); [V0.3.3 validation](docs/V0.3.3.md) covers the preceding full browser run; [Phase 2 results](docs/V0.3.1-PHASE2.md) are historical. Coverage includes seeded maps, exact starter counts/accessibility, idempotent deployment/load, production/consumption accounting, power/worker starvation, capacity limits over 1,500 ticks, clock determinism/speeds, save migration, footprint selection, paid construction and the original economic/camera checks. Earlier baseline layouts were inspected at 1366×768, 1280×720 and 1024×768. The new large-world browser checks use the Playwright default viewport; pure culling tests cover 1366×768 at minimum zoom.
+Phase 1 validation (historical): production workspace build, 99 Vitest tests, sixteen Chromium browser checks, lint and formatting passed. Historical V0.3.3.1 validation (148 unit tests and six targeted browser checks) is recorded in [the fix notes](docs/V0.3.3.1.md); [V0.3.3 validation](docs/V0.3.3.md) covers the preceding full browser run; [Phase 2 results](docs/V0.3.1-PHASE2.md) are historical. Coverage includes seeded maps, exact starter counts/accessibility, idempotent deployment/load, production/consumption accounting, power/worker starvation, capacity limits over 1,500 ticks, clock determinism/speeds, save migration, footprint selection, paid construction and the original economic/camera checks. Earlier baseline layouts were inspected at 1366×768, 1280×720 and 1024×768. The new large-world browser checks use the Playwright default viewport; pure culling tests cover 1366×768 at minimum zoom.
 
 For database/container verification when access is available:
 
@@ -139,11 +147,13 @@ curl --fail http://127.0.0.1:3001/api/ready
 docker compose up --build
 ```
 
-Stage 1 migration SQL was independently applied successfully to PostgreSQL 16. Prisma-managed migration/client integration and the full Docker application image remain unverified here due to the engine download restriction. The Railway startup fix changes deployment health to `/api/health` and starts HTTP independently of database migrations. Database readiness remains available separately at `/api/ready`; see [startup fix details](docs/RAILWAY-STARTUP-FIX.md). Vite reports a large Phaser bundle warning; it does not fail the build.
+V0.4 migration SQL and Prisma adapter integration were verified against isolated PostgreSQL 16. Production migration/deployment remains an explicit operator action. See [V0.4 verification details](docs/V0.4.md). The Railway startup fix changes deployment health to `/api/health` and starts HTTP independently of database migrations. Database readiness remains available separately at `/api/ready`; see [startup fix details](docs/RAILWAY-STARTUP-FIX.md). Vite reports a large Phaser bundle warning; it does not fail the build.
 
 ## Architecture
 
-- `packages/simulation/src/catalog.ts`: shared building/resource definitions, costs, recipes, storage and rates.
+- `packages/simulation/src/catalog.ts`: original gameplay definitions.
+- `packages/simulation/src/catalogue.ts`: validated immutable snapshots, supported capabilities and runtime definitions.
+- `apps/web/src/AdminApp.tsx`: protected dashboard and catalogue editors.
 - `packages/simulation/src/feedback.ts`: read-only, state-grounded citizen dialogue and city advice.
 - `packages/simulation/src/people.ts`: saved residents, deterministic navigation and gated buggy arrivals.
 - `packages/simulation/src/networks.ts`: reusable channel graphs, ports, physical storage and infrastructure rules.
@@ -157,7 +167,7 @@ Stage 1 migration SQL was independently applied successfully to PostgreSQL 16. P
 - `apps/web/src/NetworkInspector.tsx`: actual network observations and segment controls.
 - `apps/web/src/World.tsx`: Phaser terrain, placeholder buildings, landing animation and camera; it never edits colony state.
 - `apps/web/src/main.tsx`: React HUD, construction/inspection and clock adapter; every gameplay mutation calls simulation functions.
-- `apps/api`: compatible Fastify endpoints and the original Prisma schema/migration. `/api/new-game` now returns schema version 7 and `/api/health` identifies version 0.3.3.1.
+- `apps/api`: Fastify authentication, draft/public catalogue APIs, durable uploads and committed Prisma migrations. `/api/new-game` returns schema 8; `/api/health` identifies version 0.4.0.
 
 ## Docker and Railway
 

@@ -2,7 +2,7 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY . .
-RUN npm ci --no-audit --no-fund
+RUN PRISMA_SKIP_POSTINSTALL_GENERATE=true npm ci --no-audit --no-fund
 RUN npm run db:generate && npm run build
 ENV NODE_ENV=production
 ENV WEB_ROOT=/app/apps/web/dist

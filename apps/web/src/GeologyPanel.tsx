@@ -1,9 +1,9 @@
+import { catalogueMinerals } from './catalogue-view';
 import { useMemo, useState } from 'react';
 import {
   discoveredDeposits,
   droneDefinitions,
   extractionDefinitions,
-  mineralDefinitions,
   requestScan,
   surveyAreasOverlap,
   scanDefinitions,
@@ -23,6 +23,7 @@ export function GeologyPanel({
   onChange: (state: ColonyState) => void;
   onFocus: (tile: Tile) => void;
 }) {
+  const mineralDefinitions = catalogueMinerals(colony.catalogue);
   const stations = colony.buildings.filter((b) => b.type === 'survey-station');
   const [stationId, setStationId] = useState(''),
     [mode, setMode] = useState<ScanMode>('subsurface'),

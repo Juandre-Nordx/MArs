@@ -1,15 +1,15 @@
+import { CatalogueArt } from './catalogue-art';
+import { catalogueResources, catalogueMinerals } from './catalogue-view';
 import { ProductionPanel } from './ProductionPanel';
 import { useEffect, useRef } from 'react';
 import {
-  buildingDefinitions,
-  resourceDefinitions,
+  runtimeCatalogue,
   resourceKeys,
   connectionTiles,
   networkFor,
   isUsable,
   isMine,
   extractionDefinitions,
-  mineralDefinitions,
   type ColonyState,
   type Building,
   type BuildingType,
@@ -49,6 +49,12 @@ export function BuildingPopup({
   onClose: () => void;
   onCommand: (update: (s: ColonyState) => ColonyState) => void;
 }) {
+  const resourceDefinitions = catalogueResources(colony.catalogue);
+  const buildingDefinitions = runtimeCatalogue(colony).buildings;
+  const mineralDefinitions = catalogueMinerals(colony.catalogue);
+  const entry = colony.catalogue.document.buildings.find(
+    (b) => b.id === building.type,
+  )!;
   const close = useRef<HTMLButtonElement>(null);
   useEffect(() => close.current?.focus({ preventScroll: true }), []);
   const definition = buildingDefinitions[building.type];
@@ -87,25 +93,36 @@ export function BuildingPopup({
           ×
         </button>
       </header>
-      <svg
-        width="100"
-        height="65"
-        viewBox="0 0 100 65"
-        role="img"
-        aria-label={`${definition.name} placeholder artwork`}
-      >
-        <path d="M10 32 50 12 90 32 50 52Z" fill="#252e34" />
-        <path
-          d="M22 25 50 11 78 25 50 39Z"
-          fill={`#${definition.color.toString(16).padStart(6, '0')}`}
+      {entry.icon.startsWith('placeholder:') ? (
+        <svg
+          width="100"
+          height="65"
+          viewBox="0 0 100 65"
+          role="img"
+          aria-label={`${definition.name} placeholder artwork`}
+        >
+          <path d="M10 32 50 12 90 32 50 52Z" fill="#252e34" />
+          <path
+            d="M22 25 50 11 78 25 50 39Z"
+            fill={`#${definition.color.toString(16).padStart(6, '0')}`}
+          />
+          <path d="M22 25V43L50 57V39Z" fill="#586b77" />
+          <path d="M50 39V57L78 43V25Z" fill="#8ba2a7" />
+        </svg>
+      ) : (
+        <CatalogueArt
+          reference={entry.icon}
+          kind="building"
+          width={100}
+          height={65}
+          alt={`${definition.name} artwork`}
         />
-        <path d="M22 25V43L50 57V39Z" fill="#586b77" />
-        <path d="M50 39V57L78 43V25Z" fill="#8ba2a7" />
-      </svg>
+      )}
       <p className="muted">
         {building.type} · {building.id} · {building.x},{building.y} · Original
         placeholder art
       </p>
+      <p>{entry.description}</p>
       <p>{purposes[building.type]}</p>
       <dl>
         <dt>Condition</dt>

@@ -1,8 +1,10 @@
-import { buildingDefinitions, resourceKeys, type Resource } from './catalog.js';
+import { runtimeCatalogue } from './catalogue.js';
+import { resourceKeys, type Resource } from './catalog.js';
 import { capacities, type ColonyState } from './colony.js';
 import { droneDefinitions, extractionDefinitions, isMine } from './industry.js';
 import { mineralDefinitions } from './world.js';
 export function storageOverview(state: ColonyState) {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   const cap = capacities(state);
   const resources = resourceKeys.map((resource) => ({
     resource,

@@ -112,7 +112,13 @@ describe('automatic electrical contacts', () => {
   it('migrates all previous rule versions without adding energy or changing entities', () => {
     const s = deployColony(newGame());
     for (const version of [1, 2, 3]) {
-      const { production: _production, industry: _industry, ...legacy } = s;
+      const {
+        catalogue: _catalogue,
+        production: _production,
+        industry: _industry,
+        ...legacy
+      } = s;
+      void _catalogue;
       void _production;
       void _industry;
       const next = loadSave({

@@ -138,7 +138,13 @@ describe('automatic water contacts', () => {
   });
   it('migrates old water connection rules without moving resources or creating segments', () => {
     const s = active();
-    const { production: _production, industry: _industry, ...legacy } = s;
+    const {
+      catalogue: _catalogue,
+      production: _production,
+      industry: _industry,
+      ...legacy
+    } = s;
+    void _catalogue;
     void _production;
     void _industry;
     const old = { ...legacy, schemaVersion: 5, networkRulesVersion: 1 };

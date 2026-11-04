@@ -238,7 +238,8 @@ describe('refunds and save conservation', () => {
   });
   it('migrates actual schema-6 state without changing resources, drones, colony location or discoveries', () => {
     const current = factory();
-    const { production: _p, ...old } = current;
+    const { catalogue: _catalogue, production: _p, ...old } = current;
+    void _catalogue;
     void _p;
     const loaded = loadSave({ ...old, schemaVersion: 6 });
     expect(loaded.production).toEqual(emptyProduction());

@@ -107,11 +107,13 @@ describe('512-tile world foundation', () => {
   it('upgrades an actual schema-4 shape without moving entities or altering supplies and is idempotent', () => {
     const current = deployColony(newGame(37));
     const {
+      catalogue: _catalogue,
       production: _production,
       industry: _industry,
       world: _world,
       ...old
     } = current;
+    void _catalogue;
     void _production;
     void _industry;
     void _world;
@@ -120,7 +122,7 @@ describe('512-tile world foundation', () => {
       schemaVersion: 4,
       networkRulesVersion: 3,
     });
-    expect(upgraded.schemaVersion).toBe(7);
+    expect(upgraded.schemaVersion).toBe(8);
     expect(upgraded.world.width).toBe(512);
     for (const key of [
       'buildings',

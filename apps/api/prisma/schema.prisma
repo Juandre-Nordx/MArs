@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  engineType = "client"
 }
 datasource db {
   provider = "postgresql"
@@ -9,6 +10,10 @@ model User {
   id String @id @default(uuid()) @db.Uuid
   email String @unique
   createdAt DateTime @default(now())
+  passwordHash String?
+  role String @default("PLAYER")
+  enabled Boolean @default(true)
+  adminSessions AdminSession[]
   sessions Session[]
   saves ColonySave[]
 }
@@ -29,4 +34,87 @@ model ColonySave {
   updatedAt DateTime @updatedAt
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@index([userId])
+}
+
+model AdminSession {
+  id String @id @default(uuid()) @db.Uuid
+  tokenHash String @unique
+  csrfToken String
+  userId String @db.Uuid
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  @@index([expiresAt])
+}
+model ResourceDefinition {
+  id String @id
+  revision Int
+  document Json
+  references RecipeReference[]
+}
+model BuildingDefinition {
+  id String @id
+  revision Int
+  document Json
+  recipes RecipeDefinition[]
+}
+model RecipeDefinition {
+  id String @id
+  producerId String
+  revision Int
+  document Json
+  producer BuildingDefinition @relation(fields:[producerId],references:[id],onDelete:Restrict)
+  resources RecipeReference[]
+}
+model RecipeReference {
+  recipeId String
+  resourceId String
+  direction String
+  recipe RecipeDefinition @relation(fields:[recipeId],references:[id],onDelete:Restrict)
+  resource ResourceDefinition @relation(fields:[resourceId],references:[id],onDelete:Restrict)
+  @@id([recipeId,resourceId,direction])
+}
+model CatalogueDraft {
+  id String @id
+  revision Int @default(1)
+  baseVersion Int?
+  document Json
+  updatedAt DateTime @updatedAt
+}
+model PublishedCatalogue {
+  id Int @id @default(autoincrement())
+  document Json
+  digest String
+  actorId String
+  createdAt DateTime @default(now())
+  assets PublishedAsset[]
+}
+model CatalogueState {
+  id String @id
+  currentVersion Int?
+}
+model CatalogueAsset {
+  id String @id @default(uuid()) @db.Uuid
+  slot String
+  mime String
+  width Int
+  height Int
+  digest String
+  data Bytes
+  createdAt DateTime @default(now())
+  versions PublishedAsset[]
+}
+model PublishedAsset {
+  versionId Int
+  assetId String @db.Uuid
+  version PublishedCatalogue @relation(fields:[versionId],references:[id],onDelete:Restrict)
+  asset CatalogueAsset @relation(fields:[assetId],references:[id],onDelete:Restrict)
+  @@id([versionId,assetId])
+}
+model AdminAudit {
+  id Int @id @default(autoincrement())
+  actorId String
+  action String
+  detail Json
+  createdAt DateTime @default(now())
 }

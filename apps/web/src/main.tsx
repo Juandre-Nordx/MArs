@@ -1,7 +1,15 @@
+import { catalogueResources } from './catalogue-view';
 import { BuildingPopup } from './BuildingPopup';
 import { StorageOverview } from './StorageOverview';
 import { GeologyPanel } from './GeologyPanel';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   advance,
@@ -12,14 +20,16 @@ import {
   type InfrastructureType,
   alerts,
   buildingAt,
-  buildingDefinitions,
+  runtimeCatalogue,
+  buildingAvailable,
+  catalogueSnapshotSchema,
+  type CatalogueSnapshot,
   capacities,
   colonySchema,
   construct,
   deployColony,
   loadSave,
   placement,
-  resourceDefinitions,
   resourceKeys,
   setSpeed,
   SOL_TICKS,
@@ -35,6 +45,8 @@ import { ColonistInspector } from './ColonistInspector';
 import { World } from './World';
 import { WorldNavigator } from './WorldNavigator';
 import './style.css';
+import { CatalogueArt } from './catalogue-art';
+const AdminApp = lazy(() => import('./AdminApp'));
 const SAVE_KEY = 'mars-first-colony-save';
 const categories: Category[] = [
   'Housing',
@@ -49,6 +61,27 @@ function App() {
   const last = useRef(performance.now());
   const inspectorRef = useRef<HTMLElement>(null);
   const [colony, setColony] = useState<ColonyState | null>(null);
+  const buildingDefinitions = runtimeCatalogue(colony ?? undefined).buildings;
+  const [catalogues, setCatalogues] = useState<{ id: string }[]>([]);
+  const [selectedCatalogue, setSelectedCatalogue] = useState('current');
+  const [currentCatalogue, setCurrentCatalogue] =
+    useState<CatalogueSnapshot | null>(null);
+  useEffect(() => {
+    fetch('/api/catalogues/current')
+      .then(async (r) => {
+        if (r.ok)
+          setCurrentCatalogue(catalogueSnapshotSchema.parse(await r.json()));
+      })
+      .catch(() => {});
+    fetch('/api/catalogues')
+      .then(async (r) => {
+        if (r.ok) setCatalogues(await r.json());
+      })
+      .catch(() => {});
+  }, []);
+  const resourceDefinitions = catalogueResources(
+    colony?.catalogue ?? currentCatalogue ?? undefined,
+  );
   const [selectedResidentId, setSelectedResidentId] = useState<string | null>(
     null,
   );
@@ -159,13 +192,22 @@ function App() {
       const response = await fetch('/api/new-game', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seed: mission + 1 }),
+        body: JSON.stringify({
+          seed: mission + 1,
+          ...(selectedCatalogue === 'current'
+            ? {}
+            : { catalogueVersion: selectedCatalogue }),
+        }),
       });
       if (!response.ok)
         throw new Error('API unavailable. Start the backend and retry.');
       const body: unknown = await response.json();
       const state = colonySchema.parse((body as { colony?: unknown }).colony);
       publish(state, true);
+      setMessage(
+        (body as { warning?: string }).warning ??
+          `Colony uses catalogue ${state.catalogue.id}`,
+      );
       setFocus(null);
       setMission((value) => value + 1);
       setSelectedResidentId(null);
@@ -287,19 +329,45 @@ function App() {
               className={`stat ${colony && cap && colony.inventory[key] <= cap[key] * 0.2 ? 'low' : ''}`}
               key={key}
             >
-              <span>{resourceDefinitions[key].label}</span>
+              <span>
+                <CatalogueArt
+                  className="catalogue-icon"
+                  reference={
+                    resourceDefinitions[key]!.icon ?? 'placeholder:resource'
+                  }
+                  kind="resource"
+                  alt=""
+                />
+                {resourceDefinitions[key]!.label}
+              </span>
               <strong data-testid={`resource-${key}`}>
                 {colony ? format(colony.inventory[key]) : '—'}
               </strong>
               <small>
                 {cap
-                  ? `${cap[key]} ${resourceDefinitions[key].unit} capacity`
-                  : resourceDefinitions[key].unit}
+                  ? `${cap[key]} ${resourceDefinitions[key]!.unit} capacity`
+                  : resourceDefinitions[key]!.unit}
               </small>
             </div>
           ))}
         </div>
         <div className="session-controls">
+          <label>
+            New colony catalogue
+            <select
+              aria-label="New colony catalogue"
+              value={selectedCatalogue}
+              onChange={(e) => setSelectedCatalogue(e.target.value)}
+            >
+              <option value="current">Current publication</option>
+              <option value="builtin-v0331">Original game</option>
+              {catalogues.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.id}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="session-buttons">
             <button
               disabled={busy}
@@ -363,7 +431,7 @@ function App() {
               <option value="power">Electrical network</option>
               <option value="road">Road network</option>
             </select>
-            <small>v0.3.3.1 · Temporary procedural artwork</small>
+            <small>v0.4 · Catalogue {colony?.catalogue.id ?? 'original'}</small>
           </label>
           <World
             colony={colony}
@@ -533,7 +601,7 @@ function App() {
               <dl>
                 {resourceKeys.map((key) => (
                   <div className="store-row" key={key}>
-                    <dt>{resourceDefinitions[key].label}</dt>
+                    <dt>{resourceDefinitions[key]!.label}</dt>
                     <dd>
                       {format(colony.inventory[key])} / {cap?.[key]}
                     </dd>
@@ -546,7 +614,7 @@ function App() {
                   .filter((key) => key !== 'energy')
                   .map((key) => (
                     <p key={key}>
-                      {resourceDefinitions[key].label}: +
+                      {resourceDefinitions[key]!.label}: +
                       {format(colony.telemetry.produced[key])} / −
                       {format(colony.telemetry.consumed[key])}
                     </p>
@@ -608,18 +676,18 @@ function App() {
             logistics and refining pending
           </p>
         </aside>
+        {colony && building && (
+          <BuildingPopup
+            key={building.id}
+            colony={colony}
+            building={building}
+            onClose={() => setTile(null)}
+            onCommand={(update) => {
+              if (clock.current) publish(update(clock.current.colony));
+            }}
+          />
+        )}
       </section>
-      {colony && building && (
-        <BuildingPopup
-          key={building.id}
-          colony={colony}
-          building={building}
-          onClose={() => setTile(null)}
-          onCommand={(update) => {
-            if (clock.current) publish(update(clock.current.colony));
-          }}
-        />
-      )}
       <footer className="construction-toolbar">
         <nav aria-label="Construction categories">
           {[...categories, 'Infrastructure' as const].map((item) => (
@@ -682,6 +750,7 @@ function App() {
               .filter(
                 (type) =>
                   type !== 'starship' &&
+                  (!colony || buildingAvailable(colony, type)) &&
                   buildingDefinitions[type].category === category,
               )
               .map((type) => {
@@ -696,6 +765,16 @@ function App() {
                       setConstruction(type);
                     }}
                   >
+                    <CatalogueArt
+                      className="catalogue-icon"
+                      reference={
+                        colony?.catalogue.document.buildings.find(
+                          (b) => b.id === type,
+                        )?.icon ?? 'placeholder:building'
+                      }
+                      kind="building"
+                      alt=""
+                    />
                     {d.name}
                     <small>
                       {d.width}×{d.height} · {d.cost.metal} metal ·{' '}
@@ -719,4 +798,12 @@ function App() {
     </main>
   );
 }
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById('root')!).render(
+  location.pathname === '/admin' ? (
+    <Suspense fallback={<p>Loading administration…</p>}>
+      <AdminApp />
+    </Suspense>
+  ) : (
+    <App />
+  ),
+);

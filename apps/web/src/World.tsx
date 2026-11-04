@@ -3,7 +3,7 @@ import { ActorRenderer } from './actors';
 import { visibleChunks, nearViewport } from './viewport';
 import Phaser from 'phaser';
 import {
-  buildingDefinitions,
+  runtimeCatalogue,
   footprint,
   generateChunk,
   CHUNK_SIZE,
@@ -76,6 +76,9 @@ export function World(props: Props) {
         { graphics: Phaser.GameObjects.Graphics; state: unknown }
       >();
       private cameraSignature = '';
+      private artCatalogue = '';
+      private artRevision = 0;
+      private artLoads = new Set<string>();
       private focus: Tile | null = null;
       private structures!: Phaser.GameObjects.Graphics;
       private overlay!: Phaser.GameObjects.Graphics;
@@ -348,13 +351,36 @@ export function World(props: Props) {
         for (const image of this.buildingImages) image.destroy();
         this.buildingImages = [];
         this.structures.clear();
+        const buildingDefinitions = runtimeCatalogue(colony).buildings;
         for (const b of colony.buildings) {
           if (!nearViewport(b, this.cameras.main.worldView, 192)) continue;
           const p = tileToWorld(b.x, b.y),
             spec = this.specs[b.type];
+          const art = colony.catalogue.document.buildings.find(
+            (d) => d.id === b.type,
+          );
+          const uploaded =
+            art &&
+            !art.sprite.startsWith('placeholder:') &&
+            this.textures.exists(`catalogue-${art.sprite}`);
           const image = this.add
-            .image(p.x, p.y, spec.key)
-            .setOrigin(spec.originX, spec.originY)
+            .image(p.x, p.y, uploaded ? `catalogue-${art!.sprite}` : spec.key)
+            .setOrigin(
+              uploaded
+                ? art!.anchor.x
+                : spec.originX + (art?.anchor.x ?? 0.5) - 0.5,
+              uploaded
+                ? art!.anchor.y
+                : spec.originY + (art?.anchor.y ?? 1) - 1,
+            )
+            .setScale(
+              uploaded
+                ? (128 * art!.scale) /
+                    this.textures
+                      .get(`catalogue-${art!.sprite}`)
+                      .getSourceImage().width
+                : (art?.scale ?? 1),
+            )
             .setDepth((b.x + b.y) * 10);
           if (!b.enabled || b.health === 0) image.setAlpha(0.55);
           this.buildingImages.push(image);
@@ -463,6 +489,20 @@ export function World(props: Props) {
           routeValid,
           buildingPreviewValid,
         } = latest.current;
+        if (colony && this.artCatalogue !== colony.catalogue.id) {
+          this.artCatalogue = colony.catalogue.id;
+          for (const entry of colony.catalogue.document.buildings) {
+            if (entry.sprite.startsWith('placeholder:')) continue;
+            const key = `catalogue-${entry.sprite}`;
+            if (this.textures.exists(key) || this.artLoads.has(key)) continue;
+            this.artLoads.add(key);
+            this.load.image(key, `/api/catalogue-assets/${entry.sprite}`);
+          }
+          if (!this.load.isLoading()) this.load.start();
+          this.load.once('complete', () => {
+            this.artRevision++;
+          });
+        }
         if (this.seed !== (colony?.seed ?? 1) || this.mission !== mission) {
           this.actors.reset();
           this.seed = colony?.seed ?? 1;
@@ -502,10 +542,12 @@ export function World(props: Props) {
         const cameraChanged = cameraSignature !== this.cameraSignature;
         this.cameraSignature = cameraSignature;
         this.drawTerrain(this.seed, colony);
-        const signature = JSON.stringify(
+        const signature = JSON.stringify([
+          colony?.catalogue.id,
+          this.artRevision,
           colony?.buildings.map((b) => [b.id, b.status, b.enabled, b.health]) ??
             [],
-        );
+        ]);
         if (cameraChanged || signature !== this.signature) {
           this.signature = signature;
           this.structures.clear();

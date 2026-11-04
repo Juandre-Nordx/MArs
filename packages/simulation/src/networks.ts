@@ -1,3 +1,4 @@
+import { runtimeCatalogue } from './catalogue.js';
 import { z } from 'zod';
 import { isExplored, type WorldState } from './world.js';
 import {
@@ -143,6 +144,7 @@ export function connectionTiles(
 export const isUsable = (value: { health: number; enabled: boolean }) =>
   value.health > 0 && value.enabled;
 export function rebuildNetworks(state: NetworkState): Network[] {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   const networks: Network[] = [];
   for (const type of infrastructureTypeSchema.options) {
     const segments = state.infrastructure
@@ -273,6 +275,7 @@ export function reserve(state: NetworkState, network: Network): number {
   );
 }
 export function room(state: NetworkState, network: Network): number {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   if (network.type === 'road') return 0;
   const key = utilityResource[network.type];
   return networkStorage(state, network).reduce(
@@ -302,6 +305,7 @@ export function deposit(
   network: Network,
   amount: number,
 ): number {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   if (network.type === 'road' || amount < 0 || !Number.isFinite(amount))
     throw new Error('Invalid network deposit');
   let remaining = amount;
@@ -326,6 +330,7 @@ export function aggregateStores(state: NetworkState): void {
 }
 // Scenario/migration-only allocation: moves existing aggregate cargo into physical containers.
 export function distributeCargo(state: NetworkState): void {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   for (const key of ['water', 'oxygen', 'energy'] as const) {
     let remaining = state.inventory[key];
     const buildings = [...state.buildings].sort(
@@ -439,6 +444,7 @@ export function routePreview(
   refund: number;
   tiles: Tile[];
 } {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   const tiles = [...new Map(route.map((t) => [tileKey(t), t])).values()];
   const definition = infrastructureDefinitions[type];
   const fail = (reason: string) => ({
