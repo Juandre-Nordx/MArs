@@ -1,3 +1,4 @@
+import { runtimeCatalogue } from './catalogue.js';
 import { z } from 'zod';
 import {
   buildingTypeSchema,
@@ -53,6 +54,7 @@ export const productRegistrySchema = z
           message: 'Product requires material inputs',
         });
   });
+export type ProductDefinition = z.infer<typeof productRegistrySchema>[number];
 export const products = productRegistrySchema.parse([
   {
     id: 'survey-drone',
@@ -86,9 +88,14 @@ export const products = productRegistrySchema.parse([
 export const productionLimits = z
   .object({ queue: z.number().int().positive() })
   .parse({ queue: 5 });
-export const productsFor = (type: BuildingType) =>
-  products.filter((p) => p.producers.includes(type));
-export const productById = (id: string) => products.find((p) => p.id === id);
+export const productsFor = (type: BuildingType, state?: unknown) =>
+  (state ? runtimeCatalogue(state).products : products).filter((p) =>
+    p.producers.includes(type),
+  );
+export const productById = (id: string, state?: unknown) =>
+  (state ? runtimeCatalogue(state).products : products).find(
+    (p) => p.id === id,
+  );
 const counter = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 export const productionSchema = z
   .object({
@@ -138,7 +145,7 @@ export function selectProduct(
   productId: string,
 ): ColonyState {
   const b = state.buildings.find((b) => b.id === buildingId),
-    p = productById(productId);
+    p = productById(productId, state);
   if (!b || !p || !p.producers.includes(b.type))
     throw new Error('Product is incompatible with this building');
   return {
@@ -160,7 +167,7 @@ export function queueProduct(
   productId: string,
 ): ColonyState {
   const selected = selectProduct(state, buildingId, productId),
-    p = productById(productId)!;
+    p = productById(productId, state)!;
   if (state.phase !== 'active') throw new Error('Wait for touchdown');
   const orders = state.production.orders;
   if (
@@ -263,7 +270,8 @@ export function productionBlock(
   if (!b.enabled) return 'disabled';
   if (b.health <= 0) return 'damaged';
   if (!networkFor(state.networks, b.id, 'power')) return 'no-power-connection';
-  if (b.workers < productById(order.productId)!.workers) return 'no-workers';
+  if (b.workers < productById(order.productId, state)!.workers)
+    return 'no-workers';
   if (b.status === 'no-power') return 'no-power';
   if (!deploymentPoint(state, b, occupied)) return 'deployment-blocked';
   return 'ready';
@@ -283,7 +291,7 @@ export function advanceProduction(
   const occupied = deploymentOccupancy(state);
   for (const order of heads.values()) {
     const b = buildings.get(order.buildingId)!,
-      p = productById(order.productId)!;
+      p = productById(order.productId, state)!;
     order.blocked = productionBlock(state, b, order, occupied);
     if (order.blocked !== 'ready') continue;
     if (order.progress === p.duration) {
@@ -341,13 +349,13 @@ export function validateProduction(
     issue('Duplicate production identity');
   for (const s of state.production.selections) {
     const b = buildings.get(s.buildingId),
-      p = productById(s.productId);
+      p = productById(s.productId, state);
     if (!b || !p || !p.producers.includes(b.type))
       issue('Invalid product selection');
   }
   for (const o of state.production.orders) {
     const b = buildings.get(o.buildingId),
-      p = productById(o.productId);
+      p = productById(o.productId, state);
     if (
       !b ||
       !p ||

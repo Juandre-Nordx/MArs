@@ -1,13 +1,17 @@
 import Fastify, { type FastifyServerOptions } from 'fastify';
+import { databaseClient } from './database.js';
 import { PrismaClient } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { newGame } from '@mars/simulation';
+import { adminRoutes, type AdminOptions } from './admin.js';
+import { AdminError } from './admin-store.js';
+import { builtinCatalogue, newGame } from '@mars/simulation';
 export function createApp(
   database?: PrismaClient,
   options: {
     databaseUrl?: string;
     logger?: FastifyServerOptions['logger'];
+    admin?: Partial<Omit<AdminOptions, 'db' | 'configured'>>;
   } = {},
 ) {
   let client = database;
@@ -15,10 +19,7 @@ export function createApp(
     ? options.databaseUrl
     : process.env.DATABASE_URL;
   const configured = !!database || !!databaseUrl;
-  const db = () =>
-    (client ??= new PrismaClient({
-      datasources: { db: { url: databaseUrl } },
-    }));
+  const db = () => (client ??= databaseClient(databaseUrl!));
   const app = Fastify({ logger: options.logger ?? true, bodyLimit: 16384 });
   let lastFailure = '';
   const reportDatabaseFailure = (event: string, error: unknown) => {
@@ -45,7 +46,7 @@ export function createApp(
   app.get('/api/health', async () => ({
     status: 'ok',
     stage: 3,
-    version: '0.3.3.1',
+    version: '0.4.0',
   }));
   app.get('/api/ready', async (_request, reply) => {
     if (!configured) {
@@ -72,14 +73,53 @@ export function createApp(
       return reply.code(503).send({ status: 'database-unavailable' });
     }
   });
-  app.post('/api/new-game', async (request, reply) => {
-    const parsed = z
-      .object({ seed: z.number().int().min(0).max(2147483647).default(1) })
-      .strict()
-      .safeParse(request.body ?? {});
-    if (!parsed.success)
-      return reply.code(400).send({ error: 'Invalid new-game request' });
-    return { colony: newGame(parsed.data.seed), persistence: 'none' };
+  app.register(async (routes) => {
+    const { snapshot } = await adminRoutes(routes, {
+      db,
+      configured,
+      production: process.env.NODE_ENV === 'production',
+      origin: process.env.ADMIN_ORIGIN,
+      uploadLimit: Number(process.env.ADMIN_UPLOAD_LIMIT_BYTES) || undefined,
+      ...options.admin,
+    });
+    routes.post('/api/new-game', async (request, reply) => {
+      const parsed = z
+        .object({
+          seed: z.number().int().min(0).max(2147483647).default(1),
+          catalogueVersion: z.string().max(100).optional(),
+        })
+        .strict()
+        .safeParse(request.body ?? {});
+      if (!parsed.success)
+        return reply.code(400).send({ error: 'Invalid new-game request' });
+      try {
+        return {
+          colony: newGame(
+            parsed.data.seed,
+            'central',
+            await snapshot(parsed.data.catalogueVersion),
+          ),
+          persistence: 'none',
+        };
+      } catch (error) {
+        if (parsed.data.catalogueVersion)
+          return reply
+            .code(error instanceof AdminError ? error.statusCode : 503)
+            .send({
+              error:
+                error instanceof AdminError
+                  ? error.message
+                  : 'Required catalogue unavailable; no version substitution made',
+            });
+        reportDatabaseFailure('catalogue_storage_failed', error);
+        return {
+          colony: newGame(parsed.data.seed, 'central', builtinCatalogue()),
+          persistence: 'none',
+          warning:
+            'Catalogue database unavailable. This new colony uses the original built-in catalogue.',
+        };
+      }
+    });
   });
   app.get('/api/auth/session', async (request, reply) => {
     reply.header('Cache-Control', 'no-store');

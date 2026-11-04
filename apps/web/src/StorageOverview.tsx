@@ -1,6 +1,6 @@
+import { catalogueResources } from './catalogue-view';
 import {
-  buildingDefinitions,
-  resourceDefinitions,
+  runtimeCatalogue,
   storageOverview,
   type ColonyState,
 } from '@mars/simulation';
@@ -11,6 +11,8 @@ export function StorageOverview({
   colony: ColonyState;
   onInspect: (id: string) => void;
 }) {
+  const resourceDefinitions = catalogueResources(colony.catalogue);
+  const buildingDefinitions = runtimeCatalogue(colony).buildings;
   const overview = storageOverview(colony),
     format = (n: number) => n.toFixed(2);
   return (

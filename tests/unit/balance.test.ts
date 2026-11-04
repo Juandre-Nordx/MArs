@@ -108,7 +108,8 @@ it('loads in-progress surveys from the slower scan settings without granting ins
     drone.job = { type: 'scan', id: old.industry.scans[0]!.id };
     drone.position = tile;
     drone.activity = 'working';
-    const { production: _production, ...legacy } = old;
+    const { catalogue: _catalogue, production: _production, ...legacy } = old;
+    void _catalogue;
     void _production;
     const loaded = loadSave(
       JSON.parse(JSON.stringify({ ...legacy, schemaVersion: 6 })),

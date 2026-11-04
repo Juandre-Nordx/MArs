@@ -32,7 +32,10 @@ export async function startServer(env: NodeJS.ProcessEnv = process.env) {
       },
       'Starting MARS HTTP server',
     );
-    if (hasWeb) await app.register(fastifyStatic, { root: webRoot });
+    if (hasWeb) {
+      await app.register(fastifyStatic, { root: webRoot });
+      app.get('/admin', (_request, reply) => reply.sendFile('index.html'));
+    }
     await app.listen({ port: Number(rawPort), host: '0.0.0.0' });
     app.log.info(
       { event: 'startup_complete', healthcheck: '/api/health' },

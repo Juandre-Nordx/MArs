@@ -324,6 +324,7 @@ describe('route commands and save compatibility', () => {
   it('migrates version 2 exactly once, preserving every building ID and resource', () => {
     const current = active();
     const {
+      catalogue: _catalogue,
       production: _production,
       industry: _industry,
       world: _world,
@@ -335,6 +336,7 @@ describe('route commands and save compatibility', () => {
       networkRulesVersion: _r,
       ...legacy
     } = current;
+    void _catalogue;
     void _production;
     void _industry;
     void _world;
@@ -349,12 +351,13 @@ describe('route commands and save compatibility', () => {
       schemaVersion: 2,
       buildings: legacy.buildings.map(({ stores: _s, priority: _p, ...b }) => {
         void _s;
+        void _catalogue;
         void _p;
         return b;
       }),
     };
     const migrated = loadSave(old);
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     expect(migrated.inventory).toEqual(old.inventory);
     expect(migrated.buildings.map((b) => b.id)).toEqual(
       old.buildings.map((b) => b.id),

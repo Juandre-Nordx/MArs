@@ -1,3 +1,4 @@
+import { catalogueResources } from './catalogue-view';
 import { useState } from 'react';
 import {
   productsFor,
@@ -9,7 +10,6 @@ import {
   productionBlock,
   productionReasons,
   droneFleetLimits,
-  resourceDefinitions,
   type ColonyState,
   type Building,
   type Stock,
@@ -23,13 +23,14 @@ export function ProductionPanel({
   building: Building;
   onCommand: (fn: (s: ColonyState) => ColonyState) => void;
 }) {
+  const resourceDefinitions = catalogueResources(colony.catalogue);
   const [error, setError] = useState('');
-  const available = productsFor(building.type);
+  const available = productsFor(building.type, colony);
   if (!available.length) return null;
   const selected =
     colony.production.selections.find((s) => s.buildingId === building.id)
       ?.productId ?? available[0]!.id;
-  const product = productById(selected)!;
+  const product = productById(selected, colony)!;
   const orders = colony.production.orders.filter(
     (o) => o.buildingId === building.id,
   );
@@ -101,7 +102,7 @@ export function ProductionPanel({
       {orders.length > 0 && (
         <ol>
           {orders.map((o, i) => {
-            const p = productById(o.productId)!;
+            const p = productById(o.productId, colony)!;
             const block = productionBlock(colony, building, o);
             const reason =
               block === 'ready'

@@ -186,6 +186,7 @@ describe('buggy immigration', () => {
   it('migrates version 3 without changing supplies, identities of buildings or population', () => {
     const s = active();
     const {
+      catalogue: _catalogue,
       production: _production,
       industry: _industry,
       world: _w,
@@ -194,6 +195,7 @@ describe('buggy immigration', () => {
       immigration: _i,
       ...old
     } = s;
+    void _catalogue;
     void _production;
     void _industry;
     void _w;
@@ -209,7 +211,7 @@ describe('buggy immigration', () => {
     expect(migrated.buildings).toEqual(s.buildings);
     expect(migrated.population).toBe(10);
     expect(migrated.residents).toHaveLength(10);
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     expect(() =>
       loadSave({
         ...migrated,

@@ -1,6 +1,6 @@
 import {
   arrivalReadiness,
-  buildingDefinitions,
+  runtimeCatalogue,
   populationRates,
   toggleArrivals,
   type ColonyState,
@@ -16,6 +16,7 @@ export function ResidentsPanel({
   selectedId: string | null;
   onCommand: (update: (state: ColonyState) => ColonyState) => void;
 }) {
+  const buildingDefinitions = runtimeCatalogue(colony).buildings;
   const readiness = arrivalReadiness(colony),
     capacity = colony.buildings
       .filter((b) => b.enabled && b.health > 0)

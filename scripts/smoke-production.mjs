@@ -91,6 +91,17 @@ try {
         assert.equal(r.status, 200);
         return r.text();
       });
+      const admin = await globalThis.fetch(`${base}/admin`);
+      assert.equal(admin.status, 200);
+      assert.match(await admin.text(), /id="root"/);
+      const catalogue = await globalThis.fetch(
+        `${base}/api/catalogues/builtin-v0331`,
+      );
+      assert.equal(catalogue.status, 200);
+      assert.equal((await catalogue.json()).id, 'builtin-v0331');
+      const forbidden = await globalThis.fetch(`${base}/api/admin/catalogue`);
+      assert.equal(forbidden.status, configured ? 401 : 503);
+      await forbidden.arrayBuffer();
       const script = html.match(/src="([^"]+\.js)"/);
       assert.ok(script, 'Built HTML has no JS bundle');
       // Drain responses before shutdown: an unread large asset can keep its
@@ -113,14 +124,16 @@ try {
       });
       assert.equal(response.status, 200);
       const game = await response.json();
-      assert.equal(game.colony.schemaVersion, 7);
+      assert.equal(game.colony.schemaVersion, 8);
+      assert.equal(game.colony.catalogue.id, 'builtin-v0331');
+      if (configured) assert.match(game.warning, /built-in/);
       assert.equal(game.colony.world.width, 512);
       assert.deepEqual(game.colony.landingZone, { x: 256, y: 256 });
       assert.equal(game.colony.world.generatorVersion, 2);
       assert.ok(run.output().includes('startup_complete'));
       assert.ok(!run.output().includes('fixture-do-not-log-this'));
       console.log(
-        `PASS production HTML/assets, health and new game with ${configured ? 'invalid' : 'no'} DATABASE_URL, launched outside repository`,
+        `PASS production HTML/admin/assets, health, pinned catalogue and new game with ${configured ? 'invalid' : 'no'} DATABASE_URL, launched outside repository`,
       );
     } finally {
       await stop(run);

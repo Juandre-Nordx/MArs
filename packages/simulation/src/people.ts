@@ -1,11 +1,7 @@
+import { runtimeCatalogue } from './catalogue.js';
 import { z } from 'zod';
 import { LEGACY_WORLD_SIZE } from './catalog.js';
-import {
-  buildingDefinitions,
-  populationRates,
-  SOL_TICKS,
-  WORLD_SIZE,
-} from './catalog.js';
+import { populationRates, SOL_TICKS, WORLD_SIZE } from './catalog.js';
 import {
   adjacent,
   cells,
@@ -201,6 +197,7 @@ export function door(
 export function createResidents(
   state: Pick<ColonyState, 'population' | 'buildings' | 'landingZone'>,
 ): Resident[] {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   const homes = state.buildings.filter(
     (b) => buildingDefinitions[b.type].housing && isUsable(b),
   );
@@ -228,6 +225,7 @@ export function createResidents(
   });
 }
 export function assignHomes(state: ColonyState): Resident[] {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   const occupancy = new Map<string, number>();
   const residents = state.residents.map((r) => {
     const home = state.buildings.find(
@@ -260,6 +258,7 @@ export function arrivalReadiness(
   state: ColonyState,
   requestedHome?: string,
 ): { ready: boolean; reason: string; homeId: string | null } {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   const fail = (reason: string) => ({ ready: false, reason, homeId: null });
   if (state.phase !== 'active') return fail('Waiting for touchdown');
   if (!state.immigration.enabled) return fail('Arrivals paused');

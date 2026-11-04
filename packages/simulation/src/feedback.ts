@@ -1,4 +1,5 @@
-import { buildingDefinitions, populationRates, SOL_TICKS } from './catalog.js';
+import { runtimeCatalogue } from './catalogue.js';
+import { populationRates, SOL_TICKS } from './catalog.js';
 import { isUsable, networkFor, reserve, type Network } from './networks.js';
 import { hash } from './terrain.js';
 import { RESERVE_TICKS } from './people.js';
@@ -26,6 +27,7 @@ function utilityDemand(
   n: Network,
   type: 'water' | 'oxygen',
 ) {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   const people = state.residents.filter(
     (r) => r.homeId && n.buildings.includes(r.homeId),
   ).length;
@@ -44,6 +46,7 @@ export function residentFeedback(
   state: ColonyState,
   residentId: string,
 ): ResidentFeedback | null {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   const resident = state.residents.find((r) => r.id === residentId);
   if (!resident || state.phase !== 'active') return null;
   const number = Number(resident.id.slice(9));

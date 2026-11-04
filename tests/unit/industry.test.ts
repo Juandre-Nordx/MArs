@@ -90,7 +90,13 @@ describe('survey drones and saves', () => {
     const s = deployColony(newGame());
     s.world = scanTile(s.world, s.seed, { x: 21, y: 24 }, 'deep');
     s.world.chunks['1,1']!.deposits[0]!.remainingQuantity = 0;
-    const { production: _production, industry: _industry, ...old } = s;
+    const {
+      catalogue: _catalogue,
+      production: _production,
+      industry: _industry,
+      ...old
+    } = s;
+    void _catalogue;
     void _production;
     void _industry;
     const next = loadSave({ ...old, schemaVersion: 5 });

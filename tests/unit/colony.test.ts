@@ -101,7 +101,7 @@ describe('terrain and deployment', () => {
       inventory: { water: 33, oxygen: 24, metal: 8 },
     };
     const migrated = loadSave(legacy);
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     expect(migrated.tick).toBe(42);
     expect(migrated.inventory).toEqual({
       ...emptyStock(),

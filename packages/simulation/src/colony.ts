@@ -1,4 +1,11 @@
 import {
+  runtimeCatalogue,
+  builtinCatalogue,
+  catalogueSnapshotSchema,
+  buildingAvailable,
+  type CatalogueSnapshot,
+} from './catalogue.js';
+import {
   productionSchema,
   emptyProduction,
   advanceProduction,
@@ -63,7 +70,7 @@ import {
   initialImmigration,
   residentSchema,
 } from './people.js';
-export const SCHEMA_VERSION = 7 as const;
+export const SCHEMA_VERSION = 8 as const;
 export const STEP_MS = 1000;
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const buildingSchema = z
@@ -124,6 +131,7 @@ const baseColonySchema = z
     world: worldSchema,
     industry: industrySchema,
     production: productionSchema,
+    catalogue: catalogueSnapshotSchema,
     tick: integer,
     name: z.string().min(1).max(64),
     inventory: stockSchema,
@@ -165,6 +173,7 @@ export function buildingAt(
   );
 }
 export function capacities(state: ColonyState): Stock {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   const result = emptyStock();
   // Cargo remains inside Starship during descent; full capacities apply at deployment.
   if (state.phase === 'landing') return { ...landingCargo };
@@ -229,6 +238,7 @@ export function accessible(buildings: Building[]): boolean {
   );
 }
 export const colonySchema = baseColonySchema.superRefine((state, context) => {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   if (
     state.residents.length !== state.population ||
     new Set(state.residents.map((r) => r.id)).size !== state.population
@@ -415,7 +425,9 @@ function makeBuilding(
   id: string,
   type: BuildingType,
   position: Tile,
+  state?: unknown,
 ): Building {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   return {
     id,
     type,
@@ -428,7 +440,12 @@ function makeBuilding(
     stores: emptyStores(),
   };
 }
-function assignWorkers(buildings: Building[], population: number): Building[] {
+function assignWorkers(
+  buildings: Building[],
+  population: number,
+  state?: unknown,
+): Building[] {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   let available = population;
   return buildings.map((b) => {
     const required = buildingDefinitions[b.type].workers;
@@ -441,6 +458,7 @@ function assignWorkers(buildings: Building[], population: number): Building[] {
 export function newGame(
   seed = 1,
   layout: 'central' | 'legacy' = 'central',
+  catalogue: CatalogueSnapshot = builtinCatalogue(),
 ): ColonyState {
   z.enum(['central', 'legacy']).parse(layout);
   return colonySchema.parse({
@@ -449,6 +467,7 @@ export function newGame(
     world: newWorld(seed, layout),
     industry: emptyIndustry(),
     production: emptyProduction(),
+    catalogue,
     tick: 0,
     name: 'First Colony',
     inventory: { ...landingCargo },
@@ -503,6 +522,11 @@ export function deployColony(state: ColonyState): ColonyState {
       }),
     ),
   };
+  deployed.buildings = assignWorkers(
+    deployed.buildings,
+    deployed.population,
+    deployed,
+  );
   deployed.residents = createResidents(deployed);
   distributeCargo(deployed);
   deployed.infrastructure = starterInfrastructure(deployed.buildings);
@@ -513,8 +537,14 @@ export function placement(
   type: BuildingType,
   tile: Tile,
 ): { valid: boolean; reason: string } {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   if (state.phase !== 'active')
     return { valid: false, reason: 'Wait for touchdown' };
+  if (!buildingAvailable(state, type))
+    return {
+      valid: false,
+      reason: 'Building is archived in this colony catalogue',
+    };
   if (type === 'starship')
     return { valid: false, reason: 'Only one command centre is permitted' };
   if (
@@ -568,7 +598,12 @@ export function placement(
     state.credits < definition.cost.credits
   )
     return { valid: false, reason: 'Insufficient metal or credits' };
-  if (!accessible([...state.buildings, makeBuilding('preview', type, tile)]))
+  if (
+    !accessible([
+      ...state.buildings,
+      makeBuilding('preview', type, tile, state),
+    ])
+  )
     return { valid: false, reason: 'Placement blocks colony access' };
   return { valid: true, reason: 'Valid placement' };
 }
@@ -577,6 +612,7 @@ export function construct(
   type: BuildingType,
   tile: Tile,
 ): ColonyState {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   const check = placement(state, type, tile);
   if (!check.valid) throw new Error(check.reason);
   let id = state.nextBuildingId;
@@ -593,8 +629,9 @@ export function construct(
         credits: state.credits - definition.cost.credits,
         nextBuildingId: id + 1,
         buildings: assignWorkers(
-          [...state.buildings, makeBuilding(`built-${id}`, type, tile)],
+          [...state.buildings, makeBuilding(`built-${id}`, type, tile, state)],
           state.population,
+          state,
         ),
       }),
       `built-${id}`,
@@ -626,6 +663,7 @@ export function toggleBuilding(state: ColonyState, id: string): ColonyState {
           : b,
       ),
       state.population,
+      state,
     ),
   });
 }
@@ -713,12 +751,13 @@ export function setPowerPriority(
   };
 }
 export function step(input: ColonyState): ColonyState {
+  const buildingDefinitions = runtimeCatalogue(input).buildings;
   if (input.phase !== 'active' || input.speed === 0) return input;
   const state: ColonyState = {
     ...input,
     tick: input.tick + 1,
     inventory: { ...input.inventory },
-    buildings: assignWorkers(input.buildings, input.population),
+    buildings: assignWorkers(input.buildings, input.population, input),
     networks: input.networks.map((n) => ({
       ...n,
       supply: 0,
@@ -991,6 +1030,7 @@ export function advance(clock: ClockState, elapsedMs: number): ClockState {
   return { colony, remainderMs: total % STEP_MS };
 }
 export function alerts(state: ColonyState): string[] {
+  const buildingDefinitions = runtimeCatalogue(state).buildings;
   if (state.phase === 'landing')
     return ['Landing in progress — simulation on hold'];
   const result: string[] = [];
@@ -1031,6 +1071,7 @@ const version3Schema = baseColonySchema
     world: true,
     industry: true,
     production: true,
+    catalogue: true,
   })
   .extend({ schemaVersion: z.literal(3), networkRulesVersion: z.literal(1) });
 const legacyBuildingSchema = buildingSchema.omit({
@@ -1042,6 +1083,7 @@ const legacyColonySchema = baseColonySchema
     world: true,
     industry: true,
     production: true,
+    catalogue: true,
     infrastructure: true,
     networks: true,
     networkRulesVersion: true,
@@ -1057,20 +1099,38 @@ export function loadSave(value: unknown): ColonyState {
   const version = z
     .object({ schemaVersion: z.number() })
     .parse(value).schemaVersion;
-  if (version === 7) {
+  if (version === 8 && !(value as { catalogue?: unknown }).catalogue)
+    throw new Error(
+      'Required catalogue snapshot is missing from this save; restore the original save or resolve its published version before loading',
+    );
+  if (version === 8) {
     const parsed = baseColonySchema.parse(value);
+    reconcileSurveyAssignments(parsed.industry);
+    return colonySchema.parse(refreshNetworks(parsed));
+  }
+  if (version === 7) {
+    const old = baseColonySchema
+      .omit({ catalogue: true })
+      .extend({ schemaVersion: z.literal(7) })
+      .parse(value);
+    const parsed: ColonyState = {
+      ...old,
+      schemaVersion: SCHEMA_VERSION,
+      catalogue: builtinCatalogue(),
+    };
     reconcileSurveyAssignments(parsed.industry);
     return colonySchema.parse(refreshNetworks(parsed));
   }
   if (version === 6) {
     const legacy = baseColonySchema
-      .omit({ production: true })
+      .omit({ production: true, catalogue: true })
       .extend({ schemaVersion: z.literal(6) })
       .parse(value);
     const parsed: ColonyState = {
       ...legacy,
       schemaVersion: SCHEMA_VERSION,
       production: emptyProduction(),
+      catalogue: builtinCatalogue(),
     };
     // Earlier schema-6 surveys took 1/2/4 ticks per tile. Preserve valid old
     // partial work when faster scan settings would otherwise reject the save.
@@ -1086,7 +1146,7 @@ export function loadSave(value: unknown): ColonyState {
   }
   if (version === 5) {
     const parsed = baseColonySchema
-      .omit({ industry: true, production: true })
+      .omit({ industry: true, production: true, catalogue: true })
       .extend({
         schemaVersion: z.literal(5),
         networkRulesVersion: z.union([
@@ -1102,13 +1162,14 @@ export function loadSave(value: unknown): ColonyState {
       schemaVersion: SCHEMA_VERSION,
       industry: emptyIndustry(),
       production: emptyProduction(),
+      catalogue: builtinCatalogue(),
       networkRulesVersion: 4,
     };
     return colonySchema.parse(refreshNetworks(state));
   }
   if (version === 4) {
     const parsed = baseColonySchema
-      .omit({ world: true, industry: true, production: true })
+      .omit({ world: true, industry: true, production: true, catalogue: true })
       .extend({
         schemaVersion: z.literal(4),
         networkRulesVersion: z.union([
@@ -1127,6 +1188,7 @@ export function loadSave(value: unknown): ColonyState {
         world: newWorld(parsed.seed),
         industry: emptyIndustry(),
         production: emptyProduction(),
+        catalogue: builtinCatalogue(),
       }),
     );
   }
@@ -1138,6 +1200,7 @@ export function loadSave(value: unknown): ColonyState {
       world: newWorld(legacy.seed),
       industry: emptyIndustry(),
       production: emptyProduction(),
+      catalogue: builtinCatalogue(),
       networkRulesVersion: 4,
       residents: createResidents(legacy),
       nextResidentId: legacy.population + 1,
@@ -1153,6 +1216,7 @@ export function loadSave(value: unknown): ColonyState {
       world: newWorld(legacy.seed),
       industry: emptyIndustry(),
       production: emptyProduction(),
+      catalogue: builtinCatalogue(),
       residents: [],
       nextResidentId: legacy.population + 1,
       immigration: initialImmigration(legacy.tick),

@@ -108,7 +108,13 @@ describe('adjacent oxygen and road access', () => {
   it('migrates both previous network-rule versions without resource or entity changes', () => {
     const s = active();
     for (const version of [1, 2]) {
-      const { production: _production, industry: _industry, ...legacy } = s;
+      const {
+        catalogue: _catalogue,
+        production: _production,
+        industry: _industry,
+        ...legacy
+      } = s;
+      void _catalogue;
       void _production;
       void _industry;
       const next = loadSave({

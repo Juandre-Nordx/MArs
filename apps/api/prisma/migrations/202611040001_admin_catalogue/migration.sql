@@ -1,0 +1,18 @@
+ALTER TABLE "User" ADD COLUMN "passwordHash" TEXT, ADD COLUMN "role" TEXT NOT NULL DEFAULT 'PLAYER', ADD COLUMN "enabled" BOOLEAN NOT NULL DEFAULT true;
+CREATE TABLE "AdminSession" ("id" UUID PRIMARY KEY, "tokenHash" TEXT NOT NULL UNIQUE, "csrfToken" TEXT NOT NULL, "userId" UUID NOT NULL REFERENCES "User"("id") ON DELETE CASCADE, "expiresAt" TIMESTAMP(3) NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE INDEX "AdminSession_expiresAt_idx" ON "AdminSession"("expiresAt");
+CREATE TABLE "ResourceDefinition" ("id" TEXT PRIMARY KEY,"revision" INTEGER NOT NULL,"document" JSONB NOT NULL);
+CREATE TABLE "BuildingDefinition" ("id" TEXT PRIMARY KEY,"revision" INTEGER NOT NULL,"document" JSONB NOT NULL);
+CREATE TABLE "RecipeDefinition" ("id" TEXT PRIMARY KEY,"producerId" TEXT NOT NULL REFERENCES "BuildingDefinition"("id") ON DELETE RESTRICT,"revision" INTEGER NOT NULL,"document" JSONB NOT NULL);
+CREATE TABLE "RecipeReference" ("recipeId" TEXT NOT NULL REFERENCES "RecipeDefinition"("id") ON DELETE RESTRICT,"resourceId" TEXT NOT NULL REFERENCES "ResourceDefinition"("id") ON DELETE RESTRICT,"direction" TEXT NOT NULL,PRIMARY KEY("recipeId","resourceId","direction"));
+CREATE TABLE "CatalogueDraft" ("id" TEXT PRIMARY KEY,"revision" INTEGER NOT NULL DEFAULT 1,"baseVersion" INTEGER,"document" JSONB NOT NULL,"updatedAt" TIMESTAMP(3) NOT NULL);
+CREATE TABLE "PublishedCatalogue" ("id" SERIAL PRIMARY KEY,"document" JSONB NOT NULL,"digest" TEXT NOT NULL,"actorId" TEXT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE "CatalogueState" ("id" TEXT PRIMARY KEY,"currentVersion" INTEGER);
+CREATE TABLE "CatalogueAsset" ("id" UUID PRIMARY KEY,"slot" TEXT NOT NULL,"mime" TEXT NOT NULL,"width" INTEGER NOT NULL,"height" INTEGER NOT NULL,"digest" TEXT NOT NULL,"data" BYTEA NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE "PublishedAsset" ("versionId" INTEGER NOT NULL REFERENCES "PublishedCatalogue"("id") ON DELETE RESTRICT,"assetId" UUID NOT NULL REFERENCES "CatalogueAsset"("id") ON DELETE RESTRICT,PRIMARY KEY("versionId","assetId"));
+CREATE TABLE "AdminAudit" ("id" SERIAL PRIMARY KEY,"actorId" TEXT NOT NULL,"action" TEXT NOT NULL,"detail" JSONB NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE FUNCTION mars_immutable_version() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Published catalogue versions are immutable'; END; $$;
+CREATE TRIGGER immutable_catalogue BEFORE UPDATE OR DELETE ON "PublishedCatalogue" FOR EACH ROW EXECUTE FUNCTION mars_immutable_version();
+CREATE TRIGGER immutable_asset BEFORE UPDATE OR DELETE ON "CatalogueAsset" FOR EACH ROW EXECUTE FUNCTION mars_immutable_version();
+CREATE TRIGGER immutable_audit BEFORE UPDATE OR DELETE ON "AdminAudit" FOR EACH ROW EXECUTE FUNCTION mars_immutable_version();
+CREATE TRIGGER immutable_published_asset BEFORE UPDATE OR DELETE ON "PublishedAsset" FOR EACH ROW EXECUTE FUNCTION mars_immutable_version();
