@@ -135,12 +135,6 @@ small {
   object-fit: contain;
   vertical-align: middle;
 }
-.hud .catalogue-icon {
-  width: 16px;
-  height: 16px;
-  flex-basis: 16px;
-  margin: 0;
-}
 .stat strong {
   font-size: 21px;
   font-variant-numeric: tabular-nums;
