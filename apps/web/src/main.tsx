@@ -329,19 +329,7 @@ function App() {
               className={`stat ${colony && cap && colony.inventory[key] <= cap[key] * 0.2 ? 'low' : ''}`}
               key={key}
             >
-              <span>
-                <CatalogueArt
-                  className="catalogue-icon"
-                  width={16}
-                  height={16}
-                  reference={
-                    resourceDefinitions[key]!.icon ?? 'placeholder:resource'
-                  }
-                  kind="resource"
-                  alt=""
-                />
-                {resourceDefinitions[key]!.label}
-              </span>
+              <span>{resourceDefinitions[key]!.label}</span>
               <strong data-testid={`resource-${key}`}>
                 {colony ? format(colony.inventory[key]) : '—'}
               </strong>
