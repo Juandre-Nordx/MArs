@@ -332,6 +332,8 @@ function App() {
               <span>
                 <CatalogueArt
                   className="catalogue-icon"
+                  width={16}
+                  height={16}
                   reference={
                     resourceDefinitions[key]!.icon ?? 'placeholder:resource'
                   }
