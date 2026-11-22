@@ -6,7 +6,7 @@ import { spritePlacement } from './sprite-placement';
 
 export function SpritePreview({ entry }: { entry: BuildingEntry }) {
   const [aspect, setAspect] = useState(1);
-  const placement = spritePlacement(entry, entry);
+  const placement = spritePlacement(entry, entry, true);
   const imageHeight = placement.width * aspect;
   const left = placement.x - entry.anchor.x * placement.width;
   const top = placement.y - entry.anchor.y * imageHeight;

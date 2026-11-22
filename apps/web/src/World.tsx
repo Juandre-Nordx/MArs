@@ -376,7 +376,11 @@ export function World(props: Props) {
           const image = this.add.image(p.x, p.y, texture);
           let depth = b.x + b.y;
           if (uploaded) {
-            const placement = spritePlacement(d, art);
+            const placement = spritePlacement(
+              d,
+              art,
+              colony.starterLayout === 'courtyard',
+            );
             image
               .setPosition(p.x + placement.x, p.y + placement.y)
               .setOrigin(art.anchor.x, art.anchor.y)
@@ -384,8 +388,7 @@ export function World(props: Props) {
                 placement.width /
                   this.textures.get(texture).getSourceImage().width,
               );
-            if (art.spriteAlignment === 'footprint-front')
-              depth += d.width + d.height - 2;
+            if (placement.y > 0) depth += d.width + d.height - 2;
           } else {
             image
               .setOrigin(

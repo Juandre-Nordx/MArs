@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import {
   buildInfrastructure,
+  buildingAt,
   colonySchema,
   construct,
   deployColony,
@@ -58,6 +59,41 @@ it('lands new colonies at the map centre with explored, accessible starter build
     );
   }
 });
+it('spaces habitats into two connected rows and reserves the eastern deposits', () => {
+  const colony = deployColony(newGame());
+  const homes = colony.buildings.filter(
+    (building) => building.type === 'housing',
+  );
+  expect(colony.starterLayout).toBe('courtyard');
+  for (const y of [250, 253])
+    expect(homes.filter((home) => home.y === y).map((home) => home.x)).toEqual([
+      250, 252, 254, 256, 258,
+    ]);
+  for (const home of homes)
+    for (const type of ['water', 'oxygen', 'power', 'road'] as const)
+      expect(networkFor(colony.networks, home.id, type)).toBeDefined();
+  for (let x = 261; x <= 267; x++) {
+    expect(buildingAt(colony, { x, y: 264 })).toBeUndefined();
+    expect(
+      colony.infrastructure.some(
+        (segment) => segment.x === x && segment.y === 264,
+      ),
+    ).toBe(false);
+  }
+});
+
+it('keeps the original layout when a central save predates the courtyard', () => {
+  const landing = newGame();
+  delete landing.starterLayout;
+  const older = deployColony(loadSave(JSON.parse(JSON.stringify(landing))));
+  expect(older.starterLayout).toBeUndefined();
+  const homes = older.buildings.filter(
+    (building) => building.type === 'housing',
+  );
+  expect(homes.map((home) => home.y)).toEqual(Array(10).fill(253));
+  expect(loadSave(JSON.parse(JSON.stringify(older)))).toEqual(older);
+});
+
 it('keeps old saved colonies and schema-1 migration at their original landing location', () => {
   const old = deployColony(newGame(1, 'legacy'));
   const loaded = loadSave(JSON.parse(JSON.stringify(old)));
@@ -77,8 +113,8 @@ it('keeps old saved colonies and schema-1 migration at their original landing lo
 });
 it('provides nearby deposits and functional surveying/mining for the central colony', () => {
   let s = construct(deployColony(newGame()), 'survey-station', {
-    x: 255,
-    y: 251,
+    x: 258,
+    y: 254,
   });
   s.industry.drones[0]!.battery = 128;
   s.industry.drones[1]!.battery = 64;

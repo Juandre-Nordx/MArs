@@ -906,7 +906,7 @@ export default function AdminApp() {
                 <SpritePreview key={entry.sprite} entry={entry} />
                 <Field label="Sprite alignment">
                   <select
-                    value={entry.spriteAlignment ?? 'tile-center'}
+                    value={entry.spriteAlignment ?? 'footprint-front'}
                     onChange={(event) =>
                       change({ spriteAlignment: event.target.value })
                     }
@@ -919,6 +919,7 @@ export default function AdminApp() {
                   Match the sprite's front ground corner to the dot. Start with
                   Anchor X 0.5 and Y 1. Lower Anchor Y if there is transparent
                   space below the sprite. Adjust scale to fit the tile grid.
+                  This preview uses the new-colony proportions.
                 </small>
                 <Num
                   label="Sprite scale"

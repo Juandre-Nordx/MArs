@@ -177,17 +177,17 @@ describe('immutable snapshots and save compatibility', () => {
       height: 3,
     });
     const current = deployColony(newGame(1, 'central', snapshot(doc)));
-    const built = construct(current, 'battery', { x: 250, y: 247 });
-    const edge = { x: 253, y: 249 };
+    const built = construct(current, 'battery', { x: 259, y: 247 });
+    const edge = { x: 262, y: 249 };
     const battery = built.buildings.at(-1)!;
     expect(battery.type).toBe('battery');
     expect(buildingAt(built, edge)?.id).toBe(battery.id);
     expect(routePreview(built, 'power', [edge]).reason).toBe(
       'Building footprint is occupied',
     );
-    expect(walkingPath(built, { x: 249, y: 247 }, edge)).toBeNull();
+    expect(walkingPath(built, { x: 258, y: 247 }, edge)).toBeNull();
     expect(connectionTiles(battery, 'power', built)).toContainEqual({
-      x: 254,
+      x: 263,
       y: 249,
     });
     expect(
