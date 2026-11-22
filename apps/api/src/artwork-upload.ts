@@ -18,6 +18,10 @@ export function artworkUploadLimits(env: NodeJS.ProcessEnv) {
       env.ADMIN_UPLOAD_OUTPUT_LIMIT_BYTES ?? env.ADMIN_UPLOAD_LIMIT_BYTES,
       2 * 1024 * 1024,
     ),
+    spriteOutputBytes: byteLimit(
+      env.ADMIN_UPLOAD_SPRITE_OUTPUT_LIMIT_BYTES,
+      maxAssetBytes,
+    ),
     minSide: 16,
     maxSide: 2048,
     iconSide: 512,
@@ -128,10 +132,11 @@ export async function prepareArtwork(
       422,
       `The resized icon is too narrow. It must be at least ${limits.minSide} pixels per side.`,
     );
-  if (output.data.length > limits.outputBytes)
+  const outputBytes = icon ? limits.outputBytes : limits.spriteOutputBytes;
+  if (output.data.length > outputBytes)
     throw new AdminError(
       413,
-      `The processed PNG exceeds the ${limits.outputBytes.toLocaleString('en-US')}-byte output limit. Choose a less detailed or smaller image.`,
+      `The processed PNG exceeds the ${outputBytes.toLocaleString('en-US')}-byte output limit. Choose a less detailed or smaller image.`,
     );
   return output;
 }

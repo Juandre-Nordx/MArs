@@ -285,22 +285,11 @@ test.describe('administration with PostgreSQL', () => {
       'Unsupported format',
     );
     await expect(industryPreview).toHaveAttribute('src', initialSprite!);
-    const sprite = await sharp({
-      create: {
-        width: 1280,
-        height: 640,
-        channels: 4,
-        background: { r: 22, g: 100, b: 120, alpha: 0.7 },
-      },
-    })
-      .webp()
-      .toBuffer();
-    await industryInput.setInputFiles({
-      name: 'industry.webp',
-      mimeType: 'image/webp',
-      buffer: sprite,
-    });
-    await expect(industrySprite.getByRole('status')).toContainText('1280×640');
+    await expect(industryInput).toHaveAccessibleDescription(
+      /Processed PNG limit 8 MiB/,
+    );
+    await industryInput.setInputFiles(file);
+    await expect(industrySprite.getByRole('status')).toContainText('1280×1280');
     await expect
       .poll(() =>
         industryPreview.evaluate(
@@ -381,11 +370,13 @@ test.describe('administration with PostgreSQL', () => {
         (b: { id: string }) => b.id === 'survey-station',
       ).sprite,
     ).toBe(industryReference);
-    expect(
-      (
-        await page.request.get(`/api/catalogue-assets/${industryReference}`)
-      ).ok(),
-    ).toBe(true);
+    const publishedSprite = await page.request.get(
+      `/api/catalogue-assets/${industryReference}`,
+    );
+    expect(publishedSprite.ok()).toBe(true);
+    expect((await publishedSprite.body()).length).toBeGreaterThan(
+      2 * 1024 * 1024,
+    );
     expect(
       (await page.request.get(`/api/catalogue-assets/${housing.sprite}`)).ok(),
     ).toBe(true);

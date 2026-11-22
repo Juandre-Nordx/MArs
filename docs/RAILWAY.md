@@ -25,7 +25,7 @@ Use repository root as the source root for both services.
    ADMIN_ORIGIN=https://<public-web-domain>
    ```
 
-   The optional API variables `ADMIN_UPLOAD_INPUT_LIMIT_BYTES` and `ADMIN_UPLOAD_OUTPUT_LIMIT_BYTES` default to 8 MiB input and 2 MiB processed PNG. An existing `ADMIN_UPLOAD_LIMIT_BYTES` setting remains an output-only limit when the new output variable is unset. Update the API before the web service so the editor can display the configured limits. [Upload limits](V0.4.md)
+   The optional API limits default to 8 MiB input, 2 MiB processed icon PNG, and 8 MiB processed sprite PNG. Configure them with `ADMIN_UPLOAD_INPUT_LIMIT_BYTES`, `ADMIN_UPLOAD_OUTPUT_LIMIT_BYTES`, and `ADMIN_UPLOAD_SPRITE_OUTPUT_LIMIT_BYTES` respectively. An existing `ADMIN_UPLOAD_LIMIT_BYTES` setting applies to icon output when the icon variable is unset. Update the API before the web service so the editor can display the configured limits. [Upload limits](V0.4.md)
 
    Keep the existing private `DATABASE_URL` reference. Binding to `::` supports Railway private networking on environments with IPv6 private DNS. Use **one API replica** with this volume. The volume belongs to a single Railway service instance and a replacement must mount the same volume. A replacement can briefly interrupt access while Railway reattaches it.
 
