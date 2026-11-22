@@ -2,14 +2,17 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import cookie from '@fastify/cookie';
 import type { PrismaClient } from '@prisma/client';
 import { z, ZodError } from 'zod';
-import sharp from 'sharp';
 import { randomUUID } from 'node:crypto';
 import {
   assetDigest,
   AssetStorageError,
-  maxAssetBytes,
   type AssetStorage,
 } from './asset-storage.js';
+import {
+  oversizedInput,
+  prepareArtwork,
+  type ArtworkUploadLimits,
+} from './artwork-upload.js';
 import {
   builtinCatalogue,
   catalogueDocumentSchema,
@@ -37,7 +40,7 @@ export type AdminOptions = {
   production?: boolean;
   origin?: string;
   now?: () => number;
-  uploadLimit?: number;
+  artworkLimits: ArtworkUploadLimits;
   sessionMs?: number;
 };
 const loginSchema = z
@@ -115,7 +118,7 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
   }
   // All admin errors are bounded and sanitised; database details and credential values never leave the server.
   await app.register(async (routes) => {
-    routes.setErrorHandler((error, _request, reply) => {
+    routes.setErrorHandler((error, request, reply) => {
       if (error instanceof AdminError || error instanceof AssetStorageError)
         return reply.code(error.statusCode).send({ error: error.message });
       if (error instanceof ZodError)
@@ -126,7 +129,11 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
       if (error.statusCode === 413 || error.statusCode === 400)
         return reply.code(error.statusCode).send({
           error:
-            error.statusCode === 413 ? 'Upload too large' : 'Invalid request',
+            error.statusCode === 413
+              ? request.routeOptions.url === '/api/admin/assets'
+                ? oversizedInput(options.artworkLimits).message
+                : 'Upload too large'
+              : 'Invalid request',
         });
       return reply.code(503).send({
         error:
@@ -245,6 +252,7 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
       return {
         draft,
         current,
+        artworkLimits: options.artworkLimits,
         errors: document ? await draftErrors(db, document) : [],
         diff: document
           ? draftDiff(
@@ -319,82 +327,26 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
         .db()
         .adminAudit.findMany({ orderBy: { id: 'desc' }, take: 200 });
     });
-    const maxBytes = Math.min(
-      maxAssetBytes,
-      Math.max(1024, options.uploadLimit ?? 2 * 1024 * 1024),
-    );
     routes.post(
       '/api/admin/assets',
-      { bodyLimit: Math.ceil((maxBytes * 4) / 3) + 2048 },
+      { bodyLimit: 4 * Math.ceil(options.artworkLimits.inputBytes / 3) + 2048 },
       async (req) => {
         const s = await authorise(req, true);
         const body = z
           .object({
             slot: z.enum(['resource-icon', 'building-icon', 'building-sprite']),
-            data: z
-              .string()
-              .max(Math.ceil((maxBytes * 4) / 3))
-              .regex(/^[A-Za-z0-9+/]+={0,2}$/),
+            data: z.string(),
           })
           .strict()
           .parse(req.body);
-        const input = Buffer.from(body.data, 'base64');
-        if (input.length > maxBytes)
-          throw new AdminError(413, 'Upload too large');
-        const png = input
-            .subarray(0, 8)
-            .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
-          webp =
-            input.subarray(0, 4).toString() === 'RIFF' &&
-            input.subarray(8, 12).toString() === 'WEBP';
-        if (!png && !webp)
-          throw new AdminError(
-            415,
-            'Only PNG/WebP image contents are supported; models and archives are rejected',
-          );
-        const icon = body.slot !== 'building-sprite';
-        let result: {
-          data: Buffer<ArrayBuffer>;
-          info: { width: number; height: number };
-        };
-        try {
-          const image = sharp(input, {
-            limitInputPixels: 4 * 1024 * 1024,
-            failOn: 'warning',
-          });
-          const meta = await image.metadata();
-          const width = meta.width ?? 0;
-          const height = meta.height ?? 0;
-          if (
-            (meta.format !== 'png' && meta.format !== 'webp') ||
-            width < 16 ||
-            height < 16 ||
-            width > 2048 ||
-            height > 2048 ||
-            (meta.pages ?? 1) > 1
-          )
-            throw new Error('Invalid dimensions or format');
-
-          if (icon)
-            image.resize(512, 512, { fit: 'inside', withoutEnlargement: true });
-          result = await image.png().toBuffer({ resolveWithObject: true });
-          if (result.info.width < 16 || result.info.height < 16)
-            throw new Error('Icon aspect ratio too narrow');
-        } catch {
-          throw new AdminError(
-            422,
-            'Invalid or unreadable PNG/WebP. Use a still image 16–2048 px per side. Icons are resized to fit 512 px and must remain at least 16 px per side.',
-          );
-        }
         const {
           data: bytes,
           info: { width, height },
-        } = result;
-        if (bytes.length > maxBytes)
-          throw new AdminError(
-            413,
-            'Processed image exceeds the upload limit. Try a smaller image.',
-          );
+        } = await prepareArtwork(
+          body.data,
+          body.slot !== 'building-sprite',
+          options.artworkLimits,
+        );
 
         const id = randomUUID();
         const payload = await options.assetStorage.store(id, bytes);

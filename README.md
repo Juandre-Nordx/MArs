@@ -12,6 +12,8 @@ V0.4 adds `/admin`: protected administrator sessions, resource/building/recipe e
 
 See [V0.4 setup, exact configuration, capability limits and verification](docs/V0.4.md). Administration needs PostgreSQL; gameplay continues without it. Production migrations and initial administrator creation are explicit operator commands, never startup actions.
 
+Resource and building icons, including those in **Industry Buildings**, resize to fit 512×512. Isometric sprites keep their dimensions within the sprite limits. See [artwork limits and upload workflow](docs/V0.4.md).
+
 For split Railway deployments, mount the artwork volume on `@mars/api` at `/data/uploads`. Set `ASSET_STORAGE_DRIVER=volume` and `ASSET_STORAGE_PATH=/data/uploads` there. New artwork files go in `/data/uploads/catalogue-assets/`. The web service proxies `/api/*` to the API. Back up PostgreSQL and the artwork volume together. [Railway setup and recovery](docs/RAILWAY.md#railway-split-services-and-artwork-volume)
 
 ## Independent drone jobs

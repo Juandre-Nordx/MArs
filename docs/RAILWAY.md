@@ -25,6 +25,8 @@ Use repository root as the source root for both services.
    ADMIN_ORIGIN=https://<public-web-domain>
    ```
 
+   The optional API variables `ADMIN_UPLOAD_INPUT_LIMIT_BYTES` and `ADMIN_UPLOAD_OUTPUT_LIMIT_BYTES` default to 8 MiB input and 2 MiB processed PNG. An existing `ADMIN_UPLOAD_LIMIT_BYTES` setting remains an output-only limit when the new output variable is unset. Update the API before the web service so the editor can display the configured limits. [Upload limits](V0.4.md)
+
    Keep the existing private `DATABASE_URL` reference. Binding to `::` supports Railway private networking on environments with IPv6 private DNS. Use **one API replica** with this volume. The volume belongs to a single Railway service instance and a replacement must mount the same volume. A replacement can briefly interrupt access while Railway reattaches it.
 
 3. Configure **`@mars/web`** with config file path **`/railway.web.json`**. It selects `Dockerfile.web`, which builds the frontend and serves it using Caddy. Set `MARS_API_UPSTREAM=http://<api-private-host>:3001` on the web service using the API service’s actual Railway private domain. The browser uses same-origin URLs. Caddy forwards `/api/*` to the API, including uploads, protected previews and published artwork. Expose the web domain publicly and use it as the exact API `ADMIN_ORIGIN`. The web service has no artwork volume.
