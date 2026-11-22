@@ -26,13 +26,23 @@ import {
   type Tile,
 } from '@mars/simulation';
 import {
+  drawBuildingFoundation,
   drawCraft,
   installBuildingSprite,
   installBuildingSprites,
   installInfrastructureSprites,
   type SpriteSpec,
 } from './art';
-import { tileToWorld, worldToTile, WORLD_SIZE } from './iso';
+import {
+  footprintCorners,
+  HALF_TILE_HEIGHT,
+  HALF_TILE_WIDTH,
+  TILE_HEIGHT,
+  TILE_WIDTH,
+  tileToWorld,
+  worldToTile,
+  WORLD_SIZE,
+} from './iso';
 import { spritePlacement } from './sprite-placement';
 type Props = {
   colony: ColonyState | null;
@@ -55,10 +65,10 @@ type Props = {
 };
 function diamond(x: number, y: number) {
   return [
-    { x, y: y - 16 },
-    { x: x + 32, y },
-    { x, y: y + 16 },
-    { x: x - 32, y },
+    { x, y: y - HALF_TILE_HEIGHT },
+    { x: x + HALF_TILE_WIDTH, y },
+    { x, y: y + HALF_TILE_HEIGHT },
+    { x: x - HALF_TILE_WIDTH, y },
   ];
 }
 export function World(props: Props) {
@@ -84,6 +94,7 @@ export function World(props: Props) {
       private artRevision = 0;
       private artLoads = new Set<string>();
       private focus: Tile | null = null;
+      private foundations!: Phaser.GameObjects.Graphics;
       private structures!: Phaser.GameObjects.Graphics;
       private overlay!: Phaser.GameObjects.Graphics;
       private ship!: Phaser.GameObjects.Graphics;
@@ -99,16 +110,17 @@ export function World(props: Props) {
         installInfrastructureSprites(this);
         this.input.mouse?.disableContextMenu();
 
-        this.structures = this.add.graphics();
+        this.foundations = this.add.graphics().setDepth(-11000);
+        this.structures = this.add.graphics().setDepth(9000);
         this.faults = this.add.graphics().setDepth(9999);
         this.overlay = this.add.graphics().setDepth(10000);
         this.ship = this.add.graphics().setDepth(10001);
         const camera = this.cameras.main;
         camera.setBounds(
-          -WORLD_SIZE * 32 - 64,
+          -WORLD_SIZE * HALF_TILE_WIDTH - TILE_WIDTH,
           -96,
-          WORLD_SIZE * 64 + 128,
-          WORLD_SIZE * 32 + 192,
+          (WORLD_SIZE + 2) * TILE_WIDTH,
+          WORLD_SIZE * TILE_HEIGHT + 192,
         );
         camera.setBackgroundColor('#21191a');
         camera.centerOn(0, 300);
@@ -245,14 +257,13 @@ export function World(props: Props) {
           this.terrainChunks.set(key, { graphics, state: state?.explored });
           if (!state?.explored.length) {
             const corners = [
-              { x: c.x * CHUNK_SIZE - 0.5, y: c.y * CHUNK_SIZE - 0.5 },
-              { x: (c.x + 1) * CHUNK_SIZE - 0.5, y: c.y * CHUNK_SIZE - 0.5 },
-              {
-                x: (c.x + 1) * CHUNK_SIZE - 0.5,
-                y: (c.y + 1) * CHUNK_SIZE - 0.5,
-              },
-              { x: c.x * CHUNK_SIZE - 0.5, y: (c.y + 1) * CHUNK_SIZE - 0.5 },
-            ].map((t) => tileToWorld(t.x, t.y));
+              ...footprintCorners(
+                c.x * CHUNK_SIZE,
+                c.y * CHUNK_SIZE,
+                CHUNK_SIZE,
+                CHUNK_SIZE,
+              ),
+            ];
             graphics
               .fillStyle(0x29252c)
               .fillPoints(corners, true)
@@ -261,14 +272,15 @@ export function World(props: Props) {
             continue;
           }
           tileCount += CHUNK_SIZE * CHUNK_SIZE;
+          const colors = {
+            dust: [0x91553d, 0x965940, 0x9a5d43],
+            sand: [0xa46a4c, 0xa76d4f, 0xa16a4b],
+            basalt: [0x796259, 0x7c6559, 0x82675a],
+          };
           for (const tile of generateChunk(seed, c.x, c.y)) {
             const explored = !!colony && isExplored(colony.world, tile);
             const p = tileToWorld(tile.x, tile.y);
-            const colors = {
-              dust: [0x874735, 0x934c36, 0x9a523a],
-              sand: [0xa96542, 0xb16b46, 0xa55f3e],
-              basalt: [0x64504a, 0x70554b, 0x765d50],
-            };
+            const corners = diamond(p.x, p.y);
             graphics
               .fillStyle(
                 !explored
@@ -281,10 +293,9 @@ export function World(props: Props) {
                         ? [0x744335, 0x824b39, 0x693f35][tile.shade]!
                         : colors[tile.texture][tile.shade]!,
               )
-              .fillPoints(diamond(p.x, p.y), true);
-            graphics
-              .lineStyle(1, 0xc78158, 0.18)
-              .strokePoints(diamond(p.x, p.y), true);
+              .fillPoints(corners, true)
+              .lineStyle(1, 0xc78158, explored ? 0.08 : 0.12)
+              .strokePoints(corners, true);
             if (!explored) continue;
             // Decorative surface details do not enter collision or accessibility data.
             const nearLanding =
@@ -331,7 +342,7 @@ export function World(props: Props) {
                 );
             } else if (tile.decoration === 'ripples') {
               graphics
-                .lineStyle(1, 0xd08e64, 0.45)
+                .lineStyle(1, 0xd08e64, 0.3)
                 .lineBetween(p.x - 12, p.y + 2, p.x + 2, p.y - 5)
                 .lineBetween(p.x - 2, p.y + 6, p.x + 12, p.y - 1);
             }
@@ -354,12 +365,12 @@ export function World(props: Props) {
       private drawBuildings(colony: ColonyState) {
         for (const image of this.buildingImages) image.destroy();
         this.buildingImages = [];
-        this.structures.clear();
         const buildingDefinitions = runtimeCatalogue(colony).buildings;
         for (const b of colony.buildings) {
           if (!nearViewport(b, this.cameras.main.worldView, 192)) continue;
           const p = tileToWorld(b.x, b.y);
           const d = buildingDefinitions[b.type];
+          drawBuildingFoundation(this.foundations, b, d);
           const base = baseBuildingDefinitions[b.type];
           const spec =
             d.width !== base.width || d.height !== base.height
@@ -400,13 +411,14 @@ export function World(props: Props) {
           image.setDepth(depth * 10);
           if (!b.enabled || b.health === 0) image.setAlpha(0.55);
           this.buildingImages.push(image);
-          const cx = p.x + 16 * (d.width - d.height),
-            cy = p.y + 8 * (d.width + d.height - 2);
+          const center = tileToWorld(
+            b.x + (d.width - 1) / 2,
+            b.y + (d.height - 1) / 2,
+          );
           const warning = b.status.startsWith('no-') || b.status === 'disabled';
           this.structures
-            .setDepth(9000)
             .fillStyle(warning ? 0xff8165 : 0x8be1c1)
-            .fillCircle(cx + 19, cy - 26, 2.5);
+            .fillCircle(center.x + 19, center.y - 26, 2.5);
         }
       }
       private drawInfrastructure(
@@ -462,7 +474,7 @@ export function World(props: Props) {
             view === 'normal'
               ? segment.type === 'road'
                 ? 0.75
-                : 0.6
+                : 0.52
               : segment.type === view
                 ? 1
                 : 0.13,
@@ -544,8 +556,8 @@ export function World(props: Props) {
         // worldView is refreshed by Phaser after camera changes; cache graphics per visible chunk.
         const camera = this.cameras.main;
         const cameraSignature = [
-          Math.floor(camera.worldView.x / 32),
-          Math.floor(camera.worldView.y / 16),
+          Math.floor(camera.worldView.x / HALF_TILE_WIDTH),
+          Math.floor(camera.worldView.y / HALF_TILE_HEIGHT),
           camera.zoom,
           camera.width,
           camera.height,
@@ -562,6 +574,7 @@ export function World(props: Props) {
         if (cameraChanged || signature !== this.signature) {
           this.signature = signature;
           this.structures.clear();
+          this.foundations.clear();
           if (colony) this.drawBuildings(colony);
         }
         const infrastructureSignature = JSON.stringify([

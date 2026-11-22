@@ -4,7 +4,7 @@ An original browser-based isometric Mars colony prototype. Stage 2 extends the e
 
 ## Game interface
 
-New central colonies group ten habitats into two spaced rows with separate utility and service areas. Uploaded sprites fit their projected footprints with extra clearance around habitats. Existing saves keep their layout.
+New central colonies group ten habitats into two spaced rows with separate utility and service areas. Tanks and habitats take up less of their foundations than the larger facilities. Foundations and ground shadows follow the same isometric grid as terrain and utility lines. Existing saves keep their layout.
 
 V0.4.1 compacts the mission HUD, restores properly sized resource artwork and gives the map more space. The inspector can be hidden, and building details and production controls scroll within the map. See the [release notes](docs/V0.4.1.md).
 
