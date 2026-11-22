@@ -1,5 +1,11 @@
 import Phaser from 'phaser';
 import {
+  footprintCorners,
+  HALF_TILE_HEIGHT,
+  HALF_TILE_WIDTH,
+  tileToWorld,
+} from './iso';
+import {
   buildingDefinitions,
   infrastructureDefinitions,
   infrastructureTypeSchema,
@@ -71,17 +77,11 @@ function hull(
   h: number,
   height: number,
 ) {
-  const corners = [
-    { x, y: y - 16 },
-    { x: x + 32 * w, y: y + 16 * w - 16 },
-    { x: x + 32 * (w - h), y: y + 16 * (w + h) - 16 },
-    { x: x - 32 * h, y: y + 16 * h - 16 },
-  ];
+  const corners = footprintCorners(0, 0, w, h).map((point) => ({
+    x: x + point.x,
+    y: y + point.y,
+  }));
   const roof = corners.map((p) => ({ x: p.x, y: p.y - height }));
-  g.fillStyle(0x161c1e, 0.35).fillPoints(
-    corners.map((p) => ({ x: p.x + 8, y: p.y + 6 })),
-    true,
-  );
   g.fillStyle(0x69777a).fillPoints(
     [roof[1]!, roof[2]!, corners[2]!, corners[1]!],
     true,
@@ -101,6 +101,41 @@ function hull(
     roof[2]!.y,
   );
 }
+export function drawBuildingFoundation(
+  g: Phaser.GameObjects.Graphics,
+  tile: { x: number; y: number },
+  footprint: { width: number; height: number },
+) {
+  const corners = footprintCorners(
+    tile.x,
+    tile.y,
+    footprint.width,
+    footprint.height,
+    0.035,
+  );
+  const [, right, front, left] = corners;
+  const edge = (point: { x: number; y: number }) => ({
+    x: point.x,
+    y: point.y + 4,
+  });
+  g.fillStyle(0x2a201e, 0.44).fillPoints(
+    corners.map((point) => ({ x: point.x + 5, y: point.y + 6 })),
+    true,
+  );
+  g.fillStyle(0x55443a).fillPoints(
+    [left, front, edge(front), edge(left)],
+    true,
+  );
+  g.fillStyle(0x443730).fillPoints(
+    [front, right, edge(right), edge(front)],
+    true,
+  );
+  g.fillStyle(0x827061)
+    .fillPoints([...corners], true)
+    .lineStyle(1, 0xbc9e7f, 0.7)
+    .strokePoints([...corners], true);
+}
+
 export function installBuildingSprites(
   scene: Phaser.Scene,
 ): Record<BuildingType, SpriteSpec> {
@@ -117,15 +152,16 @@ export function installBuildingSprite(
   const key = `mars-building-${type}-${d.width}x${d.height}`;
   const padding = 30,
     top = 115,
-    width = (d.width + d.height) * 32 + padding * 2,
-    height = (d.width + d.height) * 16 + top + padding;
-  const ox = 32 * d.height + padding,
+    width = (d.width + d.height) * HALF_TILE_WIDTH + padding * 2,
+    height = (d.width + d.height) * HALF_TILE_HEIGHT + top + padding;
+  const ox = HALF_TILE_WIDTH * d.height + padding,
     oy = top;
   const spec = { key, originX: ox / width, originY: oy / height };
   if (scene.textures.exists(key)) return spec;
   const g = scene.add.graphics();
-  const cx = ox + 16 * (d.width - d.height),
-    cy = oy + 8 * (d.width + d.height - 2);
+  const centre = tileToWorld((d.width - 1) / 2, (d.height - 1) / 2);
+  const cx = ox + centre.x,
+    cy = oy + centre.y;
   hull(
     g,
     ox,
@@ -200,34 +236,32 @@ export function installBuildingSprite(
     g.fillStyle(0xb0bdb5).fillRoundedRect(cx + 35, cy - 13, 16, 15, 3);
   } else if (type === 'solar') {
     const base = { x: ox, y: oy - 10 };
+    const panelWidth = 28;
+    const panelHeight = (panelWidth / HALF_TILE_WIDTH) * HALF_TILE_HEIGHT;
     for (let x = 0; x < d.width; x++)
       for (let y = 0; y < d.height; y++) {
-        const px = base.x + (x - y) * 32,
-          py = base.y + (x + y) * 16;
+        const point = tileToWorld(x, y);
+        const px = base.x + point.x,
+          py = base.y + point.y;
         g.lineStyle(3, 0x596667).lineBetween(px, py + 3, px, py + 13);
         const panel = [
-          { x: px, y: py - 14 },
-          { x: px + 28, y: py },
-          { x: px, y: py + 14 },
-          { x: px - 28, y: py },
+          { x: px, y: py - panelHeight },
+          { x: px + panelWidth, y: py },
+          { x: px, y: py + panelHeight },
+          { x: px - panelWidth, y: py },
         ];
         g.fillStyle(0x263c69)
           .fillPoints(panel, true)
           .lineStyle(1, 0xb3c1ca)
           .strokePoints(panel, true);
         for (let i = -1; i <= 1; i++) {
-          g.lineStyle(1, 0x6794c0).lineBetween(
-            px - 14 + i * 7,
-            py - 7 - i * 3.5,
-            px + 14 + i * 7,
-            py + 7 - i * 3.5,
-          );
-          g.lineBetween(
-            px - 14 + i * 7,
-            py + 7 + i * 3.5,
-            px + 14 + i * 7,
-            py - 7 + i * 3.5,
-          );
+          const left = px - panelWidth / 2 + (i * panelWidth) / 4;
+          const right = left + panelWidth;
+          const low = py - panelHeight / 2 - (i * panelHeight) / 4;
+          const high = low + panelHeight;
+          g.lineStyle(1, 0x6794c0)
+            .lineBetween(left, low, right, high)
+            .lineBetween(2 * px - right, high, 2 * px - left, low);
         }
         g.lineStyle(2, 0xa7e5f8, 0.6).lineBetween(
           px - 17,
@@ -302,18 +336,20 @@ export function installBuildingSprite(
 }
 export function installInfrastructureSprites(scene: Phaser.Scene) {
   const directions = [
-    { x: 16, y: -8 },
-    { x: 16, y: 8 },
-    { x: -16, y: 8 },
-    { x: -16, y: -8 },
+    tileToWorld(0, -0.5),
+    tileToWorld(0.5, 0),
+    tileToWorld(0, 0.5),
+    tileToWorld(-0.5, 0),
   ];
+  const textureHeight = 2 * (HALF_TILE_HEIGHT + 3);
+
   for (const type of infrastructureTypeSchema.options)
     for (let mask = 0; mask < 16; mask++) {
       const g = scene.add.graphics();
       const color = infrastructureDefinitions[type].color;
       const offset = type === 'water' ? -3 : type === 'oxygen' ? 3 : 0;
       const x = 34 + offset,
-        y = 18;
+        y = textureHeight / 2;
       if (type === 'road') {
         g.fillStyle(0x524b46, 0.75).fillEllipse(x, y, 22, 12);
         for (let i = 0; i < 4; i++)
@@ -353,7 +389,7 @@ export function installInfrastructureSprites(scene: Phaser.Scene) {
           type === 'power' ? 3 : 5,
         );
       }
-      g.generateTexture(`mars-infra-${type}-${mask}`, 68, 36);
+      g.generateTexture(`mars-infra-${type}-${mask}`, 68, textureHeight);
       g.destroy();
     }
 }

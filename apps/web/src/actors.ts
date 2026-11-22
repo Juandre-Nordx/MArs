@@ -104,9 +104,9 @@ export class ActorRenderer {
           ([id, image]) =>
             id.startsWith('colonist-') &&
             image.visible &&
-            x >= image.x - 9 &&
-            x <= image.x + 11 &&
-            y >= image.y - 27 &&
+            x >= image.x - 9 * image.scaleX &&
+            x <= image.x + 11 * image.scaleX &&
+            y >= image.y - 27 * image.scaleY &&
             y <= image.y + 1,
         )
         .sort((a, b) => b[1].depth - a[1].depth)[0]?.[0] ?? null
@@ -141,7 +141,8 @@ export class ActorRenderer {
       if (!image) {
         image = this.scene.add
           .image(0, 0, texture)
-          .setOrigin(0.5, buggy ? 42 / 52 : 32 / 40);
+          .setOrigin(0.5, buggy ? 42 / 52 : 32 / 40)
+          .setScale(buggy ? 0.9 : 0.8);
         this.images.set(id, image);
       }
       const x = previous.x + (position.x - previous.x) * this.progress,
@@ -156,7 +157,7 @@ export class ActorRenderer {
         this.ring
           .setDepth((x + y) * 10 + 4)
           .lineStyle(2, 0xffc68a)
-          .strokeEllipse(p.x, p.y + 1, 20, 9);
+          .strokeEllipse(p.x, p.y + 1, 16, 8);
       const dx = position.x - position.y - (previous.x - previous.y);
       if (dx) image.setFlipX(dx < 0);
     };

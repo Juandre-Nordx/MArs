@@ -320,11 +320,11 @@ test.describe('administration with PostgreSQL', () => {
     await page.getByLabel('Footprint height', { exact: true }).fill('3');
     const batteryArt = await sharp(
       Buffer.from(
-        '<svg xmlns="http://www.w3.org/2000/svg" width="224" height="150" viewBox="0 0 224 150">' +
-          '<path fill="#414c54" d="M0 58L96 10l128 64-96 48z"/>' +
-          '<path fill="#364853" d="M0 58l128 64v28L0 86z"/>' +
-          '<path fill="#58717a" d="M128 122l96-48v28l-96 48z"/>' +
-          '<path fill="#76ccb5" d="m15 71 40 20v9L15 80zm55 28 40 20v9l-40-20z"/>' +
+        '<svg xmlns="http://www.w3.org/2000/svg" width="224" height="169" viewBox="0 0 224 169">' +
+          '<path fill="#414c54" d="M0 65L96 8l128 76-96 57z"/>' +
+          '<path fill="#364853" d="M0 65l128 76v28L0 93z"/>' +
+          '<path fill="#58717a" d="M128 141l96-57v28l-96 57z"/>' +
+          '<path fill="#76ccb5" d="m15 78 40 24v9L15 87zm55 33 40 24v9l-40-24z"/>' +
           '</svg>',
       ),
     )
@@ -347,7 +347,7 @@ test.describe('administration with PostgreSQL', () => {
     await expect(anchorDot).toHaveAttribute('cy', '0');
     await alignment.selectOption('footprint-front');
     await expect(anchorDot).toHaveAttribute('cx', '32');
-    await expect(anchorDot).toHaveAttribute('cy', '96');
+    await expect(anchorDot).toHaveAttribute('cy', '114');
     await page.getByLabel('Anchor X', { exact: true }).fill(String(128 / 224));
     await expect(page.locator('.admin-sprite-preview polygon')).toHaveCount(12);
     await page

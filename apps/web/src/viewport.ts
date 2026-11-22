@@ -1,5 +1,5 @@
 import { CHUNK_SIZE, WORLD_SIZE, type Tile } from '@mars/simulation';
-import { tileToWorld, worldToTile } from './iso';
+import { footprintCorners, tileToWorld, worldToTile } from './iso';
 export type Viewport = { x: number; y: number; width: number; height: number };
 // Inverse-project viewport corners; test chunk screen bounds to reject offscreen diagonals.
 export function visibleChunks(view: Viewport): Tile[] {
@@ -28,12 +28,17 @@ export function visibleChunks(view: Viewport): Tile[] {
   const result: Tile[] = [];
   for (let y = loY; y <= hiY; y++)
     for (let x = loX; x <= hiX; x++) {
-      const p = tileToWorld(x * CHUNK_SIZE, y * CHUNK_SIZE);
+      const [back, right, front, left] = footprintCorners(
+        x * CHUNK_SIZE,
+        y * CHUNK_SIZE,
+        CHUNK_SIZE,
+        CHUNK_SIZE,
+      );
       if (
-        p.x + CHUNK_SIZE * 32 + 32 >= view.x &&
-        p.x - CHUNK_SIZE * 32 - 32 <= view.x + view.width &&
-        p.y + CHUNK_SIZE * 32 + 16 >= view.y &&
-        p.y - 16 <= view.y + view.height
+        right.x >= view.x &&
+        left.x <= view.x + view.width &&
+        front.y >= view.y &&
+        back.y <= view.y + view.height
       )
         result.push({ x, y });
     }
