@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, readdir, readFile, rm, unlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import sharp from 'sharp';
+import { detailedTransparentPng } from '../helpers/artwork.js';
 import { createApp } from '../../apps/api/src/app.js';
 import { databaseClient } from '../../apps/api/src/database.js';
 import {
@@ -433,6 +434,165 @@ describe.skipIf(!url)('admin against isolated PostgreSQL', () => {
       ).json().colony.catalogue,
     ).toEqual(snapshot);
   });
+  it('resizes a detailed 1280px PNG and enforces distinct source and output limits', async () => {
+    const auth = await login();
+    const png = await detailedTransparentPng();
+    expect(png.length).toBeGreaterThan(2 * 1024 * 1024);
+    expect(png.length).toBeLessThan(8 * 1024 * 1024);
+    const payload = { slot: 'resource-icon', data: png.toString('base64') };
+    const uploaded = await post('assets', payload, auth);
+    expect(uploaded.statusCode, uploaded.body).toBe(200);
+    expect(uploaded.json()).toMatchObject({ width: 512, height: 512 });
+    const preview = await app.inject({
+      url: `/api/admin/assets/${uploaded.json().id}`,
+      headers: auth,
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.rawPayload.length).toBeLessThan(2 * 1024 * 1024);
+    const image = sharp(preview.rawPayload);
+    expect((await image.metadata()).hasAlpha).toBe(true);
+    for (const [top, alpha] of [
+      [0, 0],
+      [511, 255],
+    ]) {
+      const pixel = await image
+        .clone()
+        .extract({ left: 256, top: top!, width: 1, height: 1 })
+        .raw()
+        .toBuffer();
+      expect(pixel[3]).toBe(alpha);
+    }
+
+    for (const extra of [1, 4096]) {
+      const response = await post(
+        'assets',
+        {
+          ...payload,
+          data: Buffer.alloc(8 * 1024 * 1024 + extra).toString('base64'),
+        },
+        auth,
+      );
+      expect(response.statusCode).toBe(413);
+      expect(response.json().error).toMatch(/File too large.*8,388,608 bytes/);
+    }
+    const limited = createApp(undefined, {
+      databaseUrl: url,
+      env: {
+        ADMIN_UPLOAD_INPUT_LIMIT_BYTES: '8192',
+        ADMIN_UPLOAD_LIMIT_BYTES: '1024',
+      },
+      logger: false,
+      admin: { origin, now: () => time },
+    });
+    try {
+      const limits = (
+        await limited.inject({ url: '/api/admin/catalogue', headers: auth })
+      ).json().artworkLimits;
+      expect(limits).toMatchObject({ inputBytes: 8192, outputBytes: 1024 });
+      const overInput = await limited.inject({
+        method: 'POST',
+        url: '/api/admin/assets',
+        headers: auth,
+        payload,
+      });
+      expect(overInput.statusCode).toBe(413);
+      expect(overInput.json().error).toMatch(/input limit is 8,192 bytes/);
+
+      const sprite = await sharp({
+        create: {
+          width: 400,
+          height: 400,
+          channels: 4,
+          background: { r: 20, g: 120, b: 160, alpha: 0.7 },
+        },
+      })
+        .png()
+        .toBuffer();
+      expect(sprite.length).toBeGreaterThan(1024);
+      expect(sprite.length).toBeLessThan(8192);
+      const overOutput = await limited.inject({
+        method: 'POST',
+        url: '/api/admin/assets',
+        headers: auth,
+        payload: {
+          slot: 'building-sprite',
+          data: sprite.toString('base64'),
+        },
+      });
+      expect(overOutput.statusCode).toBe(413);
+      expect(overOutput.json().error).toMatch(/1,024-byte output limit/);
+    } finally {
+      await limited.close();
+    }
+  });
+
+  it('keeps WebP aspect ratio and sprite dimensions and explains invalid input', async () => {
+    const auth = await login();
+    const webp = await sharp({
+      create: {
+        width: 1280,
+        height: 640,
+        channels: 4,
+        background: { r: 20, g: 100, b: 160, alpha: 0.5 },
+      },
+    })
+      .webp()
+      .toBuffer();
+    for (const [slot, width, height] of [
+      ['building-icon', 512, 256],
+      ['building-sprite', 1280, 640],
+    ] as const) {
+      const result = await post(
+        'assets',
+        { slot, data: webp.toString('base64') },
+        auth,
+      );
+      expect(result.statusCode, result.body).toBe(200);
+      expect(result.json()).toMatchObject({ width, height });
+      const preview = await app.inject({
+        url: `/api/admin/assets/${result.json().id}`,
+        headers: auth,
+      });
+      expect((await sharp(preview.rawPayload).metadata()).hasAlpha).toBe(true);
+    }
+    const small = await sharp(webp).resize(24, 16).webp().toBuffer();
+    const unchanged = await post(
+      'assets',
+      { slot: 'building-icon', data: small.toString('base64') },
+      auth,
+    );
+    expect(unchanged.json()).toMatchObject({ width: 24, height: 16 });
+
+    const animated = await sharp(
+      Buffer.concat([
+        Buffer.alloc(32 * 32 * 3, 255),
+        Buffer.alloc(32 * 32 * 3),
+      ]),
+      { raw: { width: 32, height: 64, pageHeight: 32, channels: 3 } },
+    )
+      .webp()
+      .toBuffer();
+    const overPixels = await sharp({
+      create: { width: 2050, height: 2050, channels: 3, background: 'red' },
+    })
+      .png()
+      .toBuffer();
+    for (const [bytes, status, message] of [
+      [webp.subarray(0, 20), 422, /Invalid or unreadable image/],
+      [animated, 422, /Animated artwork is unsupported/],
+      [overPixels, 422, /Image dimensions.*4,194,304 pixels/],
+      [Buffer.from('not an image'), 415, /Unsupported format/],
+    ] as const) {
+      const response = await post(
+        'assets',
+        { slot: 'resource-icon', data: bytes.toString('base64') },
+        auth,
+      );
+      expect(response.statusCode, response.body).toBe(status);
+      expect(response.json().error).toMatch(message);
+    }
+  });
+
   it('persists volume artwork across API replacement, including immutable history and legacy bytes', async () => {
     const volume = await mkdtemp(
       join(process.env.MARS_TEST_ASSET_ROOT ?? resolve('..'), 'mars-assets-'),

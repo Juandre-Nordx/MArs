@@ -2,6 +2,7 @@ import {
   cloneElement,
   isValidElement,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
   type ReactElement,
@@ -22,7 +23,20 @@ type Draft = {
   baseVersion: number | null;
   document: CatalogueDocument;
 };
+type ArtworkField = 'icon' | 'sprite';
+type ArtworkUpload = { id: string; width: number; height: number };
+type ArtworkFeedback =
+  | { result: ArtworkUpload }
+  | { error: string; reauthenticate: boolean };
 type Data = {
+  artworkLimits?: {
+    inputBytes: number;
+    outputBytes: number;
+    minSide: number;
+    maxSide: number;
+    iconSide: number;
+    maxPixels: number;
+  };
   draft: Draft | null;
   current: { id: number } | null;
   errors: string[];
@@ -30,6 +44,19 @@ type Data = {
   history: { id: number; createdAt: string; digest: string }[];
 };
 type Session = { email: string; csrfToken: string; expiresAt: string };
+class AdminRequestError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+function displayBytes(bytes: number) {
+  if (bytes % (1024 * 1024) === 0) return `${bytes / (1024 * 1024)} MiB`;
+  if (bytes % 1024 === 0) return `${bytes / 1024} KiB`;
+  return `${bytes.toLocaleString()} bytes`;
+}
 const pages = [
   'Overview',
   'Minerals & Resources',
@@ -187,6 +214,8 @@ function Quantities({
   );
 }
 export default function AdminApp() {
+  const uploadRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => uploadRequest.current?.abort(), []);
   const [session, setSession] = useState<Session | null>(null),
     [boot, setBoot] = useState(true),
     [data, setData] = useState<Data | null>(null),
@@ -197,9 +226,10 @@ export default function AdminApp() {
     [dirty, setDirty] = useState(false),
     [message, setMessage] = useState(''),
     [error, setError] = useState(''),
-    [busy, setBusy] = useState(false),
-    [pendingArt, setPendingArt] = useState<
-      Partial<Record<'icon' | 'sprite', string>>
+    [working, setBusy] = useState(false),
+    [uploading, setUploading] = useState<ArtworkField | null>(null),
+    [artworkFeedback, setArtworkFeedback] = useState<
+      Partial<Record<ArtworkField, ArtworkFeedback>>
     >({}),
     [query, setQuery] = useState(''),
     [sort, setSort] = useState('name'),
@@ -214,27 +244,49 @@ export default function AdminApp() {
         createdAt: string;
       }[]
     >([]);
-  async function request<T>(path: string, body?: unknown): Promise<T> {
+  const busy = working || uploading !== null;
+  async function request<T>(
+    path: string,
+    body?: unknown,
+    {
+      signal,
+      csrfToken = session?.csrfToken,
+    }: { signal?: AbortSignal; csrfToken?: string } = {},
+  ): Promise<T> {
     const response = await fetch(`/api/admin/${path}`, {
       method: body === undefined ? 'GET' : 'POST',
       credentials: 'same-origin',
+      signal,
       headers: {
         ...(body !== undefined
           ? {
               'Content-Type': 'application/json',
-              'X-CSRF-Token': session?.csrfToken ?? '',
+              'X-CSRF-Token': csrfToken ?? '',
             }
           : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    const result = await response.json();
+    const result = await response.json().catch(() => null);
     if (!response.ok) {
-      if (response.status === 401) setSession(null);
-      throw new Error(
-        [result.error, ...(result.issues ?? [])].filter(Boolean).join('\n'),
+      // Upload errors stay with the editor, including a session that expired mid-edit.
+      if (response.status === 401 && !signal) setSession(null);
+      const details = [
+        result?.error,
+        ...(Array.isArray(result?.issues) ? result.issues : []),
+      ]
+        .filter(Boolean)
+        .join('\n');
+      throw new AdminRequestError(
+        response.status,
+        details ||
+          (response.status === 413
+            ? 'File too large for the server.'
+            : 'The admin service is unavailable. Try again.'),
       );
     }
+    if (!result)
+      throw new Error('The admin service returned an unreadable response.');
     return result as T;
   }
   async function action(fn: () => Promise<void>) {
@@ -276,7 +328,7 @@ export default function AdminApp() {
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
   function discard() {
-    if (busy) return false;
+    if (busy || uploadRequest.current) return false;
     return (
       !dirty ||
       window.confirm('Discard unsaved changes? Your form has not been saved.')
@@ -288,7 +340,7 @@ export default function AdminApp() {
     if (next === 'Minerals & Resources') setKind('resources');
     if (next === 'Industry Buildings') setKind('buildings');
     setEntry(null);
-    setPendingArt({});
+    setArtworkFeedback({});
     setDirty(false);
     setQuery('');
     if (next === 'Audit History')
@@ -298,7 +350,7 @@ export default function AdminApp() {
     if (!discard()) return;
     setEntry(structuredClone(value));
     setCreating(create);
-    setPendingArt({});
+    setArtworkFeedback({});
     setDirty(false);
   }
   function change(patch: Record<string, unknown>) {
@@ -358,52 +410,85 @@ export default function AdminApp() {
   async function upload(
     file: File | undefined,
     slot: string,
-    field: 'icon' | 'sprite',
+    field: ArtworkField,
   ) {
-    if (!file) return;
-    await action(async () => {
-      setMessage('Uploading artwork…');
-      try {
-        if (file.size > 8 * 1024 * 1024)
-          throw new Error('Image exceeds the maximum 8 MiB upload size.');
-        const buffer = new Uint8Array(await file.arrayBuffer());
-        let binary = '';
-        for (let offset = 0; offset < buffer.length; offset += 8192)
-          binary += String.fromCharCode(
-            ...buffer.subarray(offset, offset + 8192),
-          );
-        const result = await request<{
-          id: string;
-          width: number;
-          height: number;
-        }>('assets', {
-          slot,
-          data: btoa(binary),
-        });
-        change({ [field]: result.id });
-        setPendingArt((pending) => ({ ...pending, [field]: result.id }));
-        setMessage(
-          `Artwork uploaded and stored (${result.width}×${result.height}). Save the definition to attach it to the draft.`,
-        );
-      } catch (error) {
-        setMessage('');
+    const limits = data?.artworkLimits;
+    if (!file || !limits || !entry || busy || uploadRequest.current) return;
+    const controller = new AbortController();
+    uploadRequest.current = controller;
+    setUploading(field);
+    setMessage('');
+    try {
+      const { inputBytes } = limits;
+      if (file.size > inputBytes)
         throw new Error(
-          `Artwork upload failed. ${error instanceof Error ? error.message : 'Try again.'}`,
+          `File too large. The input limit is ${displayBytes(inputBytes)}.`,
         );
+
+      const buffer = new Uint8Array(await file.arrayBuffer());
+      controller.signal.throwIfAborted();
+      let binary = '';
+      for (let offset = 0; offset < buffer.length; offset += 8192)
+        binary += String.fromCharCode(
+          ...buffer.subarray(offset, offset + 8192),
+        );
+      const { signal } = controller;
+      const previous = artworkFeedback[field];
+      const activeSession =
+        previous && 'error' in previous && previous.reauthenticate
+          ? await request<Session>('session', undefined, { signal })
+          : session;
+      const result = await request<ArtworkUpload>(
+        'assets',
+        { slot, data: btoa(binary) },
+        { signal, csrfToken: activeSession?.csrfToken },
+      );
+      if (uploadRequest.current !== controller || signal.aborted) return;
+      if (activeSession !== session) setSession(activeSession);
+      change({ [field]: result.id });
+      setArtworkFeedback((feedback) => ({ ...feedback, [field]: { result } }));
+    } catch (error) {
+      if (uploadRequest.current !== controller || controller.signal.aborted)
+        return;
+      const reauthenticate =
+        error instanceof AdminRequestError &&
+        (error.status === 401 ||
+          (error.status === 403 && error.message.includes('CSRF')));
+      const reason = reauthenticate
+        ? 'Your administrator session has expired or changed.'
+        : error instanceof TypeError
+          ? 'The upload could not reach the admin service. Check your connection and retry.'
+          : error instanceof Error
+            ? error.message
+            : 'Please try again.';
+      setArtworkFeedback((feedback) => ({
+        ...feedback,
+        [field]: { error: reason, reauthenticate },
+      }));
+    } finally {
+      if (uploadRequest.current === controller) {
+        uploadRequest.current = null;
+        setUploading(null);
       }
-    });
+    }
   }
   function asset(
     label: string,
-    field: 'icon' | 'sprite',
+    field: ArtworkField,
     reference: string,
     slot: string,
   ) {
     const artKind = slot === 'resource-icon' ? 'resource' : 'building';
+    const limits = data?.artworkLimits;
+    const feedback = artworkFeedback[field];
+    const helpId = `artwork-${slot}-limits`;
+    const feedbackId = `artwork-${slot}-feedback`;
+    const uploadError = feedback && 'error' in feedback ? feedback : undefined;
     return (
       <fieldset>
         <legend>{label}</legend>
         <CatalogueArt
+          key={reference}
           reference={reference}
           kind={artKind}
           admin
@@ -414,7 +499,9 @@ export default function AdminApp() {
           <input
             type="file"
             accept="image/png,image/webp"
-            disabled={busy}
+            disabled={busy || !limits}
+            aria-describedby={`${helpId} ${feedbackId}`}
+            aria-invalid={!!uploadError && uploading !== field}
             onChange={(e) => {
               const file = e.currentTarget.files?.[0];
               e.currentTarget.value = '';
@@ -422,19 +509,59 @@ export default function AdminApp() {
             }}
           />
         </Field>
+        <div id={feedbackId}>
+          {uploading === field ? (
+            <p role="status">Uploading…</p>
+          ) : uploadError ? (
+            <p role="alert" className="admin-error">
+              Artwork upload failed. {uploadError.error}
+              {uploadError.reauthenticate && (
+                <>
+                  {' '}
+                  <a href="/admin" target="_blank" rel="noreferrer">
+                    Sign in again in a new tab
+                  </a>
+                  , then retry here.
+                </>
+              )}
+            </p>
+          ) : feedback &&
+            'result' in feedback &&
+            feedback.result.id === reference ? (
+            <p role="status" className="admin-success">
+              Uploaded — save this draft to attach the image (
+              {feedback.result.width}×{feedback.result.height}).
+            </p>
+          ) : null}
+        </div>
         <button
           type="button"
           disabled={busy}
-          onClick={() => change({ [field]: `placeholder:${artKind}` })}
+          onClick={() => {
+            change({ [field]: `placeholder:${artKind}` });
+            setArtworkFeedback((current) => ({
+              ...current,
+              [field]: undefined,
+            }));
+          }}
         >
           Reset {label.toLowerCase()} to placeholder
         </button>
-        {pendingArt[field] === reference && (
-          <p>Stored · Save draft to attach this artwork.</p>
-        )}
-        <small>
-          Still PNG/WebP, 16–2048 px per side. Icons are resized to fit 512 px.
-          Default upload limit is 2 MiB.
+        <small id={helpId}>
+          {limits ? (
+            <>
+              Still PNG or WebP. Input up to {displayBytes(limits.inputBytes)},{' '}
+              {limits.minSide}–{limits.maxSide} px per side, and{' '}
+              {limits.maxPixels.toLocaleString()} pixels total.
+              {field === 'icon'
+                ? ` Larger icons shrink to fit ${limits.iconSide}×${limits.iconSide} px.`
+                : ' Sprites keep their original dimensions.'}{' '}
+              Processed PNG limit {displayBytes(limits.outputBytes)}. Publishing
+              makes the saved artwork public.
+            </>
+          ) : (
+            'Artwork limits are unavailable. Refresh after the API is updated.'
+          )}
         </small>
       </fieldset>
     );
@@ -471,7 +598,7 @@ export default function AdminApp() {
         className="admin-editor"
         onSubmit={(e) => {
           e.preventDefault();
-          if (busy) return;
+          if (busy || uploadRequest.current) return;
           void action(async () => {
             const draft = await request<Draft>('entries', {
               revision: data.draft!.revision,
@@ -482,7 +609,7 @@ export default function AdminApp() {
             setData({ ...data, draft });
             setEntry(draft.document[kind].find((v) => v.id === entry.id)!);
             setCreating(false);
-            setPendingArt({});
+            setArtworkFeedback({});
             setDirty(false);
             await refresh();
             setMessage(
@@ -500,6 +627,7 @@ export default function AdminApp() {
             onClick={() => {
               if (discard()) {
                 setEntry(null);
+                setArtworkFeedback({});
                 setDirty(false);
               }
             }}
@@ -969,7 +1097,7 @@ export default function AdminApp() {
         <p>{session.email}</p>
         <a href="/">Return to colony</a>
       </aside>
-      <section className="admin-main" aria-busy={busy}>
+      <section className="admin-main" aria-busy={working}>
         <header className="admin-toolbar">
           <h1>{page}</h1>
           <span>

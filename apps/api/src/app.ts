@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { adminRoutes, type AdminOptions } from './admin.js';
+import { artworkUploadLimits } from './artwork-upload.js';
 import { createAssetStorage } from './asset-storage.js';
 import { AdminError } from './admin-store.js';
 import { builtinCatalogue, newGame } from '@mars/simulation';
@@ -83,7 +84,7 @@ export function createApp(
       assetStorage: createAssetStorage(env),
       production: env.NODE_ENV === 'production',
       origin: env.ADMIN_ORIGIN,
-      uploadLimit: Number(env.ADMIN_UPLOAD_LIMIT_BYTES) || undefined,
+      artworkLimits: artworkUploadLimits(env),
       ...options.admin,
     });
     routes.post('/api/new-game', async (request, reply) => {
