@@ -100,7 +100,10 @@ model CatalogueAsset {
   width Int
   height Int
   digest String
-  data Bytes
+  data Bytes?
+  storageBackend String @default("database")
+  storageKey String?
+  byteSize Int?
   createdAt DateTime @default(now())
   versions PublishedAsset[]
 }

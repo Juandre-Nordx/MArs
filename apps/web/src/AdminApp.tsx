@@ -198,6 +198,9 @@ export default function AdminApp() {
     [message, setMessage] = useState(''),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
+    [pendingArt, setPendingArt] = useState<
+      Partial<Record<'icon' | 'sprite', string>>
+    >({}),
     [query, setQuery] = useState(''),
     [sort, setSort] = useState('name'),
     [descending, setDescending] = useState(false),
@@ -285,6 +288,7 @@ export default function AdminApp() {
     if (next === 'Minerals & Resources') setKind('resources');
     if (next === 'Industry Buildings') setKind('buildings');
     setEntry(null);
+    setPendingArt({});
     setDirty(false);
     setQuery('');
     if (next === 'Audit History')
@@ -294,6 +298,7 @@ export default function AdminApp() {
     if (!discard()) return;
     setEntry(structuredClone(value));
     setCreating(create);
+    setPendingArt({});
     setDirty(false);
   }
   function change(patch: Record<string, unknown>) {
@@ -350,21 +355,42 @@ export default function AdminApp() {
             };
     edit(value, true);
   }
-  async function upload(file: File | undefined, slot: string, field: string) {
+  async function upload(
+    file: File | undefined,
+    slot: string,
+    field: 'icon' | 'sprite',
+  ) {
     if (!file) return;
     await action(async () => {
-      const buffer = await file.arrayBuffer();
-      let binary = '';
-      for (const byte of new Uint8Array(buffer))
-        binary += String.fromCharCode(byte);
-      const result = await request<{ id: string }>('assets', {
-        slot,
-        data: btoa(binary),
-      });
-      change({ [field]: result.id });
-      setMessage(
-        'Artwork uploaded. Save the definition to attach it to the draft.',
-      );
+      setMessage('Uploading artwork…');
+      try {
+        if (file.size > 8 * 1024 * 1024)
+          throw new Error('Image exceeds the maximum 8 MiB upload size.');
+        const buffer = new Uint8Array(await file.arrayBuffer());
+        let binary = '';
+        for (let offset = 0; offset < buffer.length; offset += 8192)
+          binary += String.fromCharCode(
+            ...buffer.subarray(offset, offset + 8192),
+          );
+        const result = await request<{
+          id: string;
+          width: number;
+          height: number;
+        }>('assets', {
+          slot,
+          data: btoa(binary),
+        });
+        change({ [field]: result.id });
+        setPendingArt((pending) => ({ ...pending, [field]: result.id }));
+        setMessage(
+          `Artwork uploaded and stored (${result.width}×${result.height}). Save the definition to attach it to the draft.`,
+        );
+      } catch (error) {
+        setMessage('');
+        throw new Error(
+          `Artwork upload failed. ${error instanceof Error ? error.message : 'Try again.'}`,
+        );
+      }
     });
   }
   function asset(
@@ -389,18 +415,26 @@ export default function AdminApp() {
             type="file"
             accept="image/png,image/webp"
             disabled={busy}
-            onChange={(e) => void upload(e.target.files?.[0], slot, field)}
+            onChange={(e) => {
+              const file = e.currentTarget.files?.[0];
+              e.currentTarget.value = '';
+              void upload(file, slot, field);
+            }}
           />
         </Field>
         <button
           type="button"
+          disabled={busy}
           onClick={() => change({ [field]: `placeholder:${artKind}` })}
         >
           Reset {label.toLowerCase()} to placeholder
         </button>
+        {pendingArt[field] === reference && (
+          <p>Stored · Save draft to attach this artwork.</p>
+        )}
         <small>
-          PNG/WebP, still images. Icons 16–512 px; sprites 16–2048 px. Default
-          upload limit 2 MiB. Stored durably in PostgreSQL.
+          Still PNG/WebP, 16–2048 px per side. Icons are resized to fit 512 px.
+          Default upload limit is 2 MiB.
         </small>
       </fieldset>
     );
@@ -437,6 +471,7 @@ export default function AdminApp() {
         className="admin-editor"
         onSubmit={(e) => {
           e.preventDefault();
+          if (busy) return;
           void action(async () => {
             const draft = await request<Draft>('entries', {
               revision: data.draft!.revision,
@@ -447,9 +482,12 @@ export default function AdminApp() {
             setData({ ...data, draft });
             setEntry(draft.document[kind].find((v) => v.id === entry.id)!);
             setCreating(false);
+            setPendingArt({});
             setDirty(false);
             await refresh();
-            setMessage('Draft saved. Existing colonies are unchanged.');
+            setMessage(
+              'Draft saved. Validate and publish to make its artwork public.',
+            );
           });
         }}
       >
@@ -995,9 +1033,10 @@ export default function AdminApp() {
               assembly recipes.
             </p>
             <p>
-              Artwork and published versions live in PostgreSQL. Back up the
-              database, including asset bytes. Administration requires database
-              connectivity; browser saves and simulation remain local.
+              Save uploaded artwork to a draft, then validate and publish it.
+              Back up PostgreSQL and the API artwork volume when configured.
+              Existing colonies keep the artwork references from their own
+              catalogue.
             </p>
           </>
         )}

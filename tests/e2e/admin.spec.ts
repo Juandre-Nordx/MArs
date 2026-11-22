@@ -111,6 +111,27 @@ test.describe('administration with PostgreSQL', () => {
       'src',
       /\/api\/admin\/assets\//,
     );
+    await expect(
+      page.getByText('Stored · Save draft to attach this artwork.'),
+    ).toBeVisible();
+    const validPreview = await page
+      .getByAltText('Resource icon preview')
+      .getAttribute('src');
+    await page.getByLabel('Upload resource icon').setInputFiles({
+      name: 'invalid.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from('invalid image'),
+    });
+    await expect(page.getByRole('alert')).toContainText(
+      'Artwork upload failed. Only PNG/WebP',
+    );
+    await expect(page.getByAltText('Resource icon preview')).toHaveAttribute(
+      'src',
+      validPreview!,
+    );
+    await expect(page.getByLabel('Status', { exact: true })).toHaveValue(
+      'archived',
+    );
     await page.getByRole('button', { name: 'Save draft', exact: true }).click();
     await expect(page.getByRole('status')).toContainText('Draft saved');
     await page
@@ -207,11 +228,22 @@ test.describe('administration with PostgreSQL', () => {
     expect(saved.catalogue.id).toBe(snapshot.id);
     await page.getByRole('button', { name: 'Load', exact: true }).click();
     await expect(page.getByRole('status')).toContainText('Browser save loaded');
+    await page.route(`**/api/catalogue-assets/${housing.icon}`, (route) =>
+      route.fulfill({
+        status: 404,
+        json: { error: 'Artwork file missing from the API volume' },
+      }),
+    );
+    await page.getByRole('button', { name: 'Housing', exact: true }).click();
+    const icon = page.locator('.build-menu .build-icon');
+    await expect(icon).toHaveAttribute('src', /^data:image\/svg/);
+    await expect(icon).toHaveAttribute('title', /placeholder shown/);
     expect(errors).toEqual([]);
   });
   test('ordinary player cannot use admin endpoints or dashboard', async ({
     page,
     context,
+    baseURL,
   }) => {
     const token = randomToken();
     const user = await db.user.create({
@@ -227,9 +259,13 @@ test.describe('administration with PostgreSQL', () => {
     });
     await context.addCookies([
       {
-        name: 'mars-admin',
+        name: process.env.MARS_TEST_WEB_URL
+          ? '__Host-mars-admin'
+          : 'mars-admin',
         value: token,
-        url: 'http://127.0.0.1:5173',
+        domain: new URL(baseURL!).hostname,
+        path: '/',
+        secure: !!process.env.MARS_TEST_WEB_URL,
         httpOnly: true,
         sameSite: 'Strict',
       },
@@ -242,12 +278,14 @@ test.describe('administration with PostgreSQL', () => {
       page.getByRole('button', { name: 'Sign in', exact: true }),
     ).toBeVisible();
     expect(
-      (
-        await page.request.post('/api/admin/publish', {
-          data: { revision: 1 },
-          headers: { origin: 'http://127.0.0.1:5173' },
-        })
-      ).status(),
+      await page.evaluate(async () => {
+        const response = await fetch('/api/admin/publish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ revision: 1 }),
+        });
+        return response.status;
+      }),
     ).toBe(403);
   });
 });
