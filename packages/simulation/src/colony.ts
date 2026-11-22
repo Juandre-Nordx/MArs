@@ -4,6 +4,7 @@ import {
   catalogueSnapshotSchema,
   buildingAvailable,
   type CatalogueSnapshot,
+  type CatalogueContext,
 } from './catalogue.js';
 import {
   productionSchema,
@@ -40,6 +41,7 @@ import {
 import { findLandingZone, type Tile } from './terrain.js';
 import {
   aggregateStores,
+  cells,
   deposit,
   distributeCargo,
   emptyStores,
@@ -152,22 +154,19 @@ const baseColonySchema = z
   })
   .strict();
 export type ColonyState = z.infer<typeof baseColonySchema>;
-export function footprint(type: BuildingType, position: Tile): Tile[] {
-  const definition = buildingDefinitions[type];
-  return Array.from(
-    { length: definition.width * definition.height },
-    (_, index) => ({
-      x: position.x + (index % definition.width),
-      y: position.y + Math.floor(index / definition.width),
-    }),
-  );
+export function footprint(
+  type: BuildingType,
+  position: Tile,
+  state?: CatalogueContext,
+): Tile[] {
+  return cells({ type, x: position.x, y: position.y }, state);
 }
 export function buildingAt(
   state: ColonyState,
   tile: Tile,
 ): Building | undefined {
   return state.buildings.find((building) =>
-    footprint(building.type, building).some(
+    footprint(building.type, building, state).some(
       (cell) => cell.x === tile.x && cell.y === tile.y,
     ),
   );
@@ -183,14 +182,15 @@ export function capacities(state: ColonyState): Stock {
         result[key] += buildingDefinitions[building.type].capacity[key] ?? 0;
   return result;
 }
-export function accessible(buildings: Building[]): boolean {
-  const occupied = new Set(
-    buildings.flatMap((b) => footprint(b.type, b).map((t) => `${t.x},${t.y}`)),
-  );
+export function accessible(
+  buildings: Building[],
+  state?: CatalogueContext,
+): boolean {
   if (!buildings.length) return true;
   // Outside the occupied bounding rectangle, all terrain is traversable.
   // Flood only this rectangle plus a one-tile boundary, rather than 262,144 tiles.
-  const all = buildings.flatMap((b) => footprint(b.type, b));
+  const all = buildings.flatMap((b) => footprint(b.type, b, state));
+  const occupied = new Set(all.map((tile) => `${tile.x},${tile.y}`));
   const minX = Math.max(0, Math.min(...all.map((t) => t.x)) - 1),
     minY = Math.max(0, Math.min(...all.map((t) => t.y)) - 1),
     maxX = Math.min(WORLD_SIZE - 1, Math.max(...all.map((t) => t.x)) + 1),
@@ -227,7 +227,7 @@ export function accessible(buildings: Building[]): boolean {
     enqueue(x, y - 1);
   }
   return buildings.every((b) =>
-    footprint(b.type, b).some((t) =>
+    footprint(b.type, b, state).some((t) =>
       [
         { x: t.x + 1, y: t.y },
         { x: t.x - 1, y: t.y },
@@ -319,7 +319,7 @@ export const colonySchema = baseColonySchema.superRefine((state, context) => {
     if (ids.has(building.id))
       context.addIssue({ code: 'custom', message: 'Duplicate building ID' });
     ids.add(building.id);
-    for (const tile of footprint(building.type, building)) {
+    for (const tile of footprint(building.type, building, state)) {
       const key = `${tile.x},${tile.y}`;
       if (tile.x >= WORLD_SIZE || tile.y >= WORLD_SIZE || tiles.has(key))
         context.addIssue({
@@ -342,7 +342,7 @@ export const colonySchema = baseColonySchema.superRefine((state, context) => {
   if (
     state.phase === 'active' &&
     (state.buildings.filter((b) => b.type === 'starship').length !== 1 ||
-      !accessible(state.buildings))
+      !accessible(state.buildings, state))
   )
     context.addIssue({ code: 'custom', message: 'Invalid deployed colony' });
   if (state.buildings.reduce((sum, b) => sum + b.workers, 0) > state.population)
@@ -495,6 +495,12 @@ export function deployColony(state: ColonyState): ColonyState {
   if (state.phase === 'active') return state;
   const dx = state.landingZone.x - 9;
   const dy = state.landingZone.y - 9;
+  const battery = runtimeCatalogue(state).buildings.battery;
+  // Larger batteries use the clear southeast bay without moving other buildings.
+  const batterySite =
+    battery.width <= 3 && battery.height <= 4
+      ? { x: 9, y: 15 }
+      : { x: 14, y: 14 };
   const manifest: { type: BuildingType; x: number; y: number }[] = [
     { type: 'starship', x: 9, y: 9 },
     ...Array.from({ length: 10 }, (_, index) => ({
@@ -508,7 +514,7 @@ export function deployColony(state: ColonyState): ColonyState {
     { type: 'water-tank', x: 6, y: 12 },
     { type: 'farm', x: 12, y: 10 },
     { type: 'solar', x: 4, y: 15 },
-    { type: 'battery', x: 9, y: 15 },
+    { type: 'battery', ...batterySite },
     { type: 'warehouse', x: 12, y: 14 },
   ];
   const deployed: ColonyState = {
@@ -529,7 +535,7 @@ export function deployColony(state: ColonyState): ColonyState {
   );
   deployed.residents = createResidents(deployed);
   distributeCargo(deployed);
-  deployed.infrastructure = starterInfrastructure(deployed.buildings);
+  deployed.infrastructure = starterInfrastructure(deployed.buildings, deployed);
   return colonySchema.parse(refreshNetworks(deployed));
 }
 export function placement(
@@ -547,20 +553,21 @@ export function placement(
     };
   if (type === 'starship')
     return { valid: false, reason: 'Only one command centre is permitted' };
+  const tiles = footprint(type, tile, state);
   if (
     !Number.isInteger(tile.x) ||
     !Number.isInteger(tile.y) ||
-    footprint(type, tile).some(
+    tiles.some(
       (t) => t.x < 0 || t.y < 0 || t.x >= WORLD_SIZE || t.y >= WORLD_SIZE,
     )
   )
     return { valid: false, reason: 'Outside map boundary' };
-  if (footprint(type, tile).some((cell) => !isExplored(state.world, cell)))
+  if (tiles.some((cell) => !isExplored(state.world, cell)))
     return { valid: false, reason: 'Explore this terrain before building' };
-  if (footprint(type, tile).some((cell) => buildingAt(state, cell)))
+  if (tiles.some((cell) => buildingAt(state, cell)))
     return { valid: false, reason: 'Building footprint is occupied' };
   if (
-    footprint(type, tile).some((cell) =>
+    tiles.some((cell) =>
       state.infrastructure.some(
         (segment) => segment.x === cell.x && segment.y === cell.y,
       ),
@@ -571,7 +578,7 @@ export function placement(
       reason: 'Remove infrastructure from the footprint first',
     };
   if (
-    footprint(type, tile).some(
+    tiles.some(
       (cell) =>
         state.industry.drones.some(
           (d) =>
@@ -599,10 +606,10 @@ export function placement(
   )
     return { valid: false, reason: 'Insufficient metal or credits' };
   if (
-    !accessible([
-      ...state.buildings,
-      makeBuilding('preview', type, tile, state),
-    ])
+    !accessible(
+      [...state.buildings, makeBuilding('preview', type, tile, state)],
+      state,
+    )
   )
     return { valid: false, reason: 'Placement blocks colony access' };
   return { valid: true, reason: 'Valid placement' };
@@ -1232,7 +1239,7 @@ export function loadSave(value: unknown): ColonyState {
     state.residents = createResidents(state);
     if (state.phase === 'active') {
       distributeCargo(state);
-      state.infrastructure = starterInfrastructure(state.buildings);
+      state.infrastructure = starterInfrastructure(state.buildings, state);
     }
     return colonySchema.parse(refreshNetworks(state));
   }

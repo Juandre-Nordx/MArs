@@ -62,7 +62,9 @@ export function NetworkInspector({
         </label>
       )}
       {infrastructureTypeSchema.options.map((type) => {
-        const contacts = building ? connectionTiles(building, type) : [];
+        const contacts = building
+          ? connectionTiles(building, type, colony)
+          : [];
         const endpoint = building
           ? (contacts.find((t) =>
               colony.infrastructure.some(

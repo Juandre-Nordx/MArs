@@ -4,6 +4,8 @@ import { visibleChunks, nearViewport } from './viewport';
 import Phaser from 'phaser';
 import {
   runtimeCatalogue,
+  buildingAt,
+  buildingDefinitions as baseBuildingDefinitions,
   footprint,
   generateChunk,
   CHUNK_SIZE,
@@ -25,6 +27,7 @@ import {
 } from '@mars/simulation';
 import {
   drawCraft,
+  installBuildingSprite,
   installBuildingSprites,
   installInfrastructureSprites,
   type SpriteSpec,
@@ -354,8 +357,13 @@ export function World(props: Props) {
         const buildingDefinitions = runtimeCatalogue(colony).buildings;
         for (const b of colony.buildings) {
           if (!nearViewport(b, this.cameras.main.worldView, 192)) continue;
-          const p = tileToWorld(b.x, b.y),
-            spec = this.specs[b.type];
+          const p = tileToWorld(b.x, b.y);
+          const d = buildingDefinitions[b.type];
+          const base = baseBuildingDefinitions[b.type];
+          const spec =
+            d.width !== base.width || d.height !== base.height
+              ? installBuildingSprite(this, b.type, d)
+              : this.specs[b.type];
           const art = colony.catalogue.document.buildings.find(
             (d) => d.id === b.type,
           );
@@ -384,8 +392,7 @@ export function World(props: Props) {
             .setDepth((b.x + b.y) * 10);
           if (!b.enabled || b.health === 0) image.setAlpha(0.55);
           this.buildingImages.push(image);
-          const d = buildingDefinitions[b.type],
-            cx = p.x + 16 * (d.width - d.height),
+          const cx = p.x + 16 * (d.width - d.height),
             cy = p.y + 8 * (d.width + d.height - 2);
           const warning = b.status.startsWith('no-') || b.status === 'disabled';
           this.structures
@@ -402,13 +409,7 @@ export function World(props: Props) {
         for (const image of this.infrastructureImages) image.destroy();
         this.infrastructureImages = [];
         this.faults.clear();
-        const b = selected
-          ? colony.buildings.find((b) =>
-              footprint(b.type, b).some(
-                (t) => t.x === selected.x && t.y === selected.y,
-              ),
-            )
-          : undefined;
+        const b = selected ? buildingAt(colony, selected) : undefined;
         const selectedIds = new Set(
           colony.networks
             .filter(
@@ -434,11 +435,13 @@ export function World(props: Props) {
           if (isUsable(segment))
             for (const building of colony.buildings) {
               if (
-                connectionTiles(building, segment.type).some(
+                connectionTiles(building, segment.type, colony).some(
                   (t) => t.x === segment.x && t.y === segment.y,
                 )
               ) {
-                const footprintKeys = new Set(cells(building).map(tileKey));
+                const footprintKeys = new Set(
+                  cells(building, colony).map(tileKey),
+                );
                 for (const [index, neighbor] of adjacent(segment).entries())
                   if (footprintKeys.has(tileKey(neighbor))) mask |= 1 << index;
               }
@@ -646,15 +649,13 @@ export function World(props: Props) {
         }
         const cells =
           construction && this.hover && colony
-            ? footprint(construction, this.hover)
+            ? footprint(construction, this.hover, colony)
             : selected
               ? (() => {
-                  const b = colony?.buildings.find((item) =>
-                    footprint(item.type, item).some(
-                      (t) => t.x === selected.x && t.y === selected.y,
-                    ),
-                  );
-                  return b ? footprint(b.type, b) : [selected];
+                  const b = colony ? buildingAt(colony, selected) : undefined;
+                  return b
+                    ? footprint(b.type, b, colony ?? undefined)
+                    : [selected];
                 })()
               : [];
         const valid = buildingPreviewValid;
@@ -679,17 +680,13 @@ export function World(props: Props) {
           }
         if (colony) {
           const selectedBuilding = selected
-            ? colony.buildings.find((b) =>
-                footprint(b.type, b).some(
-                  (t) => t.x === selected.x && t.y === selected.y,
-                ),
-              )
+            ? buildingAt(colony, selected)
             : undefined;
           if (selectedBuilding)
             for (const [index, type] of (
               ['water', 'oxygen', 'power', 'road'] as const
             ).entries()) {
-              const contacts = connectionTiles(selectedBuilding, type);
+              const contacts = connectionTiles(selectedBuilding, type, colony);
               const connected = contacts.filter((t) =>
                 colony.infrastructure.some(
                   (s) =>

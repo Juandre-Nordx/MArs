@@ -1,4 +1,4 @@
-import { runtimeCatalogue } from './catalogue.js';
+import { runtimeCatalogue, type CatalogueContext } from './catalogue.js';
 import { z } from 'zod';
 import { LEGACY_WORLD_SIZE } from './catalog.js';
 import { populationRates, SOL_TICKS, WORLD_SIZE } from './catalog.js';
@@ -71,9 +71,13 @@ export const initialImmigration = (
   lastEvent: 'Build a connected home to welcome a newcomer',
   convoy: null,
 });
-function grid(state: Pick<ColonyState, 'buildings' | 'infrastructure'>) {
+function grid(
+  state: Pick<ColonyState, 'buildings' | 'infrastructure'> & CatalogueContext,
+) {
   return {
-    blocked: new Set(state.buildings.flatMap((b) => cells(b).map(tileKey))),
+    blocked: new Set(
+      state.buildings.flatMap((b) => cells(b, state).map(tileKey)),
+    ),
     roads: new Set(
       state.infrastructure
         .filter((s) => s.type === 'road' && isUsable(s))
@@ -85,7 +89,7 @@ function valid(t: Tile) {
   return t.x >= 0 && t.y >= 0 && t.x < WORLD_SIZE && t.y < WORLD_SIZE;
 }
 export function walkingPath(
-  state: Pick<ColonyState, 'buildings' | 'infrastructure'>,
+  state: Pick<ColonyState, 'buildings' | 'infrastructure'> & CatalogueContext,
   from: Tile,
   to: Tile,
 ): Tile[] | null {
@@ -167,14 +171,14 @@ export function walkingPath(
 }
 export function door(
   state: Pick<ColonyState, 'buildings'> &
-    Partial<Pick<ColonyState, 'infrastructure'>>,
+    Partial<Pick<ColonyState, 'infrastructure' | 'catalogue'>>,
   building: Building,
 ): Tile | null {
   const blocked = new Set(
-    state.buildings.flatMap((b) => cells(b).map(tileKey)),
+    state.buildings.flatMap((b) => cells(b, state).map(tileKey)),
   );
   const preferred = port(building, 'road');
-  const entries = connectionTiles(building, 'road').filter(
+  const entries = connectionTiles(building, 'road', state).filter(
     (t) => !blocked.has(tileKey(t)),
   );
   const roads = new Set(
@@ -195,7 +199,8 @@ export function door(
     : (entries[0] ?? null);
 }
 export function createResidents(
-  state: Pick<ColonyState, 'population' | 'buildings' | 'landingZone'>,
+  state: Pick<ColonyState, 'population' | 'buildings' | 'landingZone'> &
+    CatalogueContext,
 ): Resident[] {
   const buildingDefinitions = runtimeCatalogue(state).buildings;
   const homes = state.buildings.filter(
@@ -480,7 +485,7 @@ export function advanceResidents(state: ColonyState): ColonyState {
         );
         const home = state.buildings.find((b) => b.id === convoy.homeId);
         const endpoint = home
-          ? connectionTiles(home, 'road').find(
+          ? connectionTiles(home, 'road', state).find(
               (t) =>
                 tileKey(t) === tileKey(convoy.position) &&
                 !blocked.has(tileKey(t)),

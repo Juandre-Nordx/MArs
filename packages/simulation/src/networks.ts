@@ -1,4 +1,4 @@
-import { runtimeCatalogue } from './catalogue.js';
+import { runtimeCatalogue, type CatalogueContext } from './catalogue.js';
 import { z } from 'zod';
 import { isExplored, type WorldState } from './world.js';
 import {
@@ -67,7 +67,7 @@ export type NetworkBuilding = {
   health: number;
   stores: z.infer<typeof storesSchema>;
 };
-export type NetworkState = {
+export type NetworkState = CatalogueContext & {
   world?: WorldState;
   buildings: NetworkBuilding[];
   infrastructure: Segment[];
@@ -102,8 +102,9 @@ export const adjacent = (tile: Tile): Tile[] => [
 ];
 export function cells(
   building: Pick<NetworkBuilding, 'type' | 'x' | 'y'>,
+  state?: CatalogueContext,
 ): Tile[] {
-  const d = buildingDefinitions[building.type];
+  const d = runtimeCatalogue(state).buildings[building.type];
   return Array.from({ length: d.width * d.height }, (_, i) => ({
     x: building.x + (i % d.width),
     y: building.y + Math.floor(i / d.width),
@@ -121,13 +122,15 @@ export function port(
 export function connectionTiles(
   building: NetworkBuilding,
   type: InfrastructureType,
+  state?: CatalogueContext,
 ): Tile[] {
   if (type !== 'road' && !buildingDefinitions[building.type].ports[type])
     return [];
-  const footprint = new Set(cells(building).map(tileKey));
+  const occupied = cells(building, state);
+  const footprint = new Set(occupied.map(tileKey));
   return [
     ...new Map(
-      cells(building)
+      occupied
         .flatMap(adjacent)
         .filter(
           (t) =>
@@ -154,7 +157,7 @@ export function rebuildNetworks(state: NetworkState): Network[] {
     const manifolds = new Map<string, Set<string>>();
     if (type !== 'road')
       for (const building of state.buildings) {
-        const contacts = connectionTiles(building, type)
+        const contacts = connectionTiles(building, type, state)
           .map((t) => byTile.get(tileKey(t)))
           .filter((segment): segment is Segment => !!segment);
         for (const contact of contacts) {
@@ -192,10 +195,10 @@ export function rebuildNetworks(state: NetworkState): Network[] {
       const buildings = state.buildings
         .filter((b) => {
           if (type === 'road')
-            return cells(b).some((t) =>
+            return cells(b, state).some((t) =>
               adjacent(t).some((n) => keys.has(tileKey(n))),
             );
-          return connectionTiles(b, type).some((tile) =>
+          return connectionTiles(b, type, state).some((tile) =>
             keys.has(tileKey(tile)),
           );
         })
@@ -350,8 +353,13 @@ export function distributeCargo(state: NetworkState): void {
       throw new Error(`Cannot preserve ${key}: insufficient storage`);
   }
 }
-export function starterInfrastructure(buildings: NetworkBuilding[]): Segment[] {
-  const occupied = new Set(buildings.flatMap((b) => cells(b).map(tileKey)));
+export function starterInfrastructure(
+  buildings: NetworkBuilding[],
+  state?: CatalogueContext,
+): Segment[] {
+  const occupied = new Set(
+    buildings.flatMap((b) => cells(b, state).map(tileKey)),
+  );
   const result: Segment[] = [];
   for (const type of infrastructureTypeSchema.options) {
     const targets = buildings
@@ -486,7 +494,7 @@ export function routePreview(
   if (visited.size !== tiles.length)
     return fail('Route must be cardinally connected');
   const occupied = new Set(
-    state.buildings.flatMap((b) => cells(b).map(tileKey)),
+    state.buildings.flatMap((b) => cells(b, state).map(tileKey)),
   );
   if (tiles.some((t) => occupied.has(tileKey(t))))
     return fail('Building footprint is occupied');

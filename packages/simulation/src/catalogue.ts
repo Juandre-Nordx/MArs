@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   buildingDefinitions,
   buildingTypeSchema,
+  maxBatteryFootprint,
   resourceDefinitions,
   resourceKeys,
   emptyStock,
@@ -198,7 +199,12 @@ export function catalogueErrors(doc: CatalogueDocument): string[] {
       )
     )
       errors.push(`Building ${b.id}: unsupported construction category`);
-    if (b.width !== base.width || b.height !== base.height)
+    if (b.id === 'battery') {
+      if (b.width > maxBatteryFootprint || b.height > maxBatteryFootprint)
+        errors.push(
+          `Building battery: the starter layout supports footprints up to ${maxBatteryFootprint}×${maxBatteryFootprint} tiles`,
+        );
+    } else if (b.width !== base.width || b.height !== base.height)
       errors.push(
         `Building ${b.id}: footprint changes require a supported starter-layout migration`,
       );
@@ -414,6 +420,7 @@ export const catalogueSnapshotSchema = z
   })
   .transform(freeze);
 export type CatalogueSnapshot = z.infer<typeof catalogueSnapshotSchema>;
+export type CatalogueContext = { catalogue?: CatalogueSnapshot };
 let builtin: CatalogueSnapshot | undefined;
 export function builtinCatalogue(): CatalogueSnapshot {
   if (builtin) return builtin;
@@ -567,6 +574,8 @@ export function runtimeCatalogue(state?: unknown) {
     );
     buildings[type] = {
       ...base,
+      width: type === 'battery' ? entry.width : base.width,
+      height: type === 'battery' ? entry.height : base.height,
       name: entry.name,
       category: entry.category as Category,
       cost: {
