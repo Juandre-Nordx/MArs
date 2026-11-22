@@ -194,6 +194,7 @@ test.describe('administration with PostgreSQL', () => {
       (await page.request.get(`/api/catalogue-assets/${housing.sprite}`)).ok(),
     ).toBe(true);
     await page.goto('/');
+    await page.locator('.catalogue-options summary').click();
     await page.getByLabel('New colony catalogue').selectOption(snapshot.id);
     await page.getByRole('button', { name: 'New game', exact: true }).click();
     await page.getByRole('button', { name: 'Skip landing' }).click();

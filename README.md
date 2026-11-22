@@ -1,6 +1,10 @@
-# MARS: FIRST COLONY — V0.4
+# MARS: FIRST COLONY — V0.4.1
 
 An original browser-based isometric Mars colony prototype. Stage 2 extends the existing Stage 1 code; Phaser projection/camera controls, React/Vite, Fastify, npm workspaces and Railway configuration are preserved.
+
+## Game interface
+
+V0.4.1 compacts the mission HUD, restores properly sized resource artwork and gives the map more space. The inspector can be hidden, and building details and production controls scroll within the map. See the [release notes](docs/V0.4.1.md).
 
 ## Catalogue administration
 
@@ -167,7 +171,7 @@ V0.4 migration SQL and Prisma adapter integration were verified against isolated
 - `apps/web/src/NetworkInspector.tsx`: actual network observations and segment controls.
 - `apps/web/src/World.tsx`: Phaser terrain, placeholder buildings, landing animation and camera; it never edits colony state.
 - `apps/web/src/main.tsx`: React HUD, construction/inspection and clock adapter; every gameplay mutation calls simulation functions.
-- `apps/api`: Fastify authentication, draft/public catalogue APIs, durable uploads and committed Prisma migrations. `/api/new-game` returns schema 8; `/api/health` identifies version 0.4.0.
+- `apps/api`: Fastify authentication, draft/public catalogue APIs, durable uploads and committed Prisma migrations. `/api/new-game` returns schema 8; `/api/health` identifies version 0.4.1.
 
 ## Docker and Railway
 
