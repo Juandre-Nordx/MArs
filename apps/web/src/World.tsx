@@ -33,6 +33,7 @@ import {
   type SpriteSpec,
 } from './art';
 import { tileToWorld, worldToTile, WORLD_SIZE } from './iso';
+import { spritePlacement } from './sprite-placement';
 type Props = {
   colony: ColonyState | null;
   mission: number;
@@ -371,25 +372,29 @@ export function World(props: Props) {
             art &&
             !art.sprite.startsWith('placeholder:') &&
             this.textures.exists(`catalogue-${art.sprite}`);
-          const image = this.add
-            .image(p.x, p.y, uploaded ? `catalogue-${art!.sprite}` : spec.key)
-            .setOrigin(
-              uploaded
-                ? art!.anchor.x
-                : spec.originX + (art?.anchor.x ?? 0.5) - 0.5,
-              uploaded
-                ? art!.anchor.y
-                : spec.originY + (art?.anchor.y ?? 1) - 1,
-            )
-            .setScale(
-              uploaded
-                ? (128 * art!.scale) /
-                    this.textures
-                      .get(`catalogue-${art!.sprite}`)
-                      .getSourceImage().width
-                : (art?.scale ?? 1),
-            )
-            .setDepth((b.x + b.y) * 10);
+          const texture = uploaded ? `catalogue-${art.sprite}` : spec.key;
+          const image = this.add.image(p.x, p.y, texture);
+          let depth = b.x + b.y;
+          if (uploaded) {
+            const placement = spritePlacement(d, art);
+            image
+              .setPosition(p.x + placement.x, p.y + placement.y)
+              .setOrigin(art.anchor.x, art.anchor.y)
+              .setScale(
+                placement.width /
+                  this.textures.get(texture).getSourceImage().width,
+              );
+            if (art.spriteAlignment === 'footprint-front')
+              depth += d.width + d.height - 2;
+          } else {
+            image
+              .setOrigin(
+                spec.originX + (art?.anchor.x ?? 0.5) - 0.5,
+                spec.originY + (art?.anchor.y ?? 1) - 1,
+              )
+              .setScale(art?.scale ?? 1);
+          }
+          image.setDepth(depth * 10);
           if (!b.enabled || b.health === 0) image.setAlpha(0.55);
           this.buildingImages.push(image);
           const cx = p.x + 16 * (d.width - d.height),
