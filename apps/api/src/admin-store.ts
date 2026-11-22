@@ -5,6 +5,7 @@ import {
   catalogueErrors,
   resourceEntrySchema,
   buildingEntrySchema,
+  buildingLayoutRules,
   recipeEntrySchema,
   type CatalogueDocument,
 } from '@mars/simulation';
@@ -141,12 +142,7 @@ export async function updateDraft(
           422,
           'Recipe has an unknown resource or producer reference',
         );
-    const updated = await tx.catalogueDraft.updateMany({
-      where: { id: 'main', revision },
-      data: { document: json(parsed), revision: { increment: 1 } },
-    });
-    if (updated.count !== 1)
-      throw new AdminError(409, 'Concurrent edit; reload the draft');
+    await saveDraftDocument(tx, revision, parsed);
     await indexDraft(tx, {
       resources: parsed.resources.filter(
         (e) => kind === 'resources' && e.id === value.id,
@@ -173,6 +169,61 @@ export async function updateDraft(
     return tx.catalogueDraft.findUniqueOrThrow({ where: { id: 'main' } });
   });
 }
+async function saveDraftDocument(
+  tx: Prisma.TransactionClient,
+  revision: number,
+  doc: CatalogueDocument,
+) {
+  const updated = await tx.catalogueDraft.updateMany({
+    where: { id: 'main', revision },
+    data: { document: json(doc), revision: { increment: 1 } },
+  });
+  if (updated.count !== 1)
+    throw new AdminError(409, 'Concurrent edit; reload the draft');
+}
+
+export async function repairDraftBuildingLayouts(
+  db: PrismaClient,
+  actorId: string,
+  revision: number,
+) {
+  return db.$transaction(async (tx) => {
+    const draft = await tx.catalogueDraft.findUnique({ where: { id: 'main' } });
+    if (!draft) throw new AdminError(409, 'Initialise the draft first');
+    if (draft.revision !== revision)
+      throw new AdminError(
+        409,
+        'Draft changed; reload before restoring building settings',
+      );
+
+    const doc = catalogueDocumentSchema.parse(draft.document);
+    const repaired: CatalogueDocument['buildings'] = [];
+    doc.buildings = doc.buildings.map((entry) => {
+      const rules = buildingLayoutRules(entry);
+      if (!rules || !Object.keys(rules.changes).length) return entry;
+      const next = { ...entry, ...rules.changes, revision: entry.revision + 1 };
+      repaired.push(next);
+      return next;
+    });
+
+    if (repaired.length) {
+      await saveDraftDocument(tx, revision, doc);
+      await indexDraft(tx, { resources: [], buildings: repaired, recipes: [] });
+      await tx.adminAudit.create({
+        data: {
+          actorId,
+          action: 'draft.restore-building-layouts',
+          detail: {
+            revision: revision + 1,
+            buildingIds: repaired.map((entry) => entry.id),
+          },
+        },
+      });
+    }
+    return { repaired: repaired.length };
+  });
+}
+
 export async function draftErrors(
   db: Pick<Prisma.TransactionClient, 'catalogueAsset'>,
   doc: CatalogueDocument,

@@ -22,6 +22,7 @@ import {
   AdminError,
   seedCatalogue,
   updateDraft,
+  repairDraftBuildingLayouts,
   publishDraft,
   draftErrors,
   draftDiff,
@@ -292,6 +293,14 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
         body.entry,
         body.create,
       );
+    });
+    routes.post('/api/admin/restore-building-layouts', async (req) => {
+      const session = await authorise(req, true);
+      const { revision } = z
+        .object({ revision: z.number().int().positive() })
+        .strict()
+        .parse(req.body);
+      return repairDraftBuildingLayouts(options.db(), session.userId, revision);
     });
     routes.post('/api/admin/validate', async (req) => {
       await authorise(req, true);

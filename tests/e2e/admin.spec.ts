@@ -229,6 +229,12 @@ test.describe('administration with PostgreSQL', () => {
       .click();
     await page.getByLabel('Search catalogue').fill('housing');
     await page.locator('tbody tr').first().getByRole('button').click();
+    await expect(
+      page.getByLabel('Footprint width', { exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole('checkbox', { name: 'power', exact: true }),
+    ).toBeDisabled();
     await page
       .getByLabel('Description', { exact: true })
       .fill('Catalogue-managed housing description');
@@ -378,6 +384,67 @@ test.describe('administration with PostgreSQL', () => {
     await page
       .getByRole('button', { name: 'Drafts & Publishing', exact: true })
       .click();
+    // Recreate the invalid draft produced by the previous editor.
+    await page.evaluate(async () => {
+      const session = await (await fetch('/api/admin/session')).json();
+      const { draft } = await (await fetch('/api/admin/catalogue')).json();
+      let revision = draft.revision;
+      const changes = [
+        {
+          ...draft.document.buildings.find(
+            (entry: { id: string }) => entry.id === 'housing',
+          ),
+          width: 2,
+        },
+        {
+          ...draft.document.buildings.find(
+            (entry: { id: string }) => entry.id === 'underground-mine',
+          ),
+          utilities: ['oxygen'],
+        },
+      ];
+      for (const entry of changes) {
+        const saved = await fetch('/api/admin/entries', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': session.csrfToken,
+          },
+          body: JSON.stringify({
+            revision,
+            kind: 'buildings',
+            create: false,
+            entry,
+          }),
+        });
+        if (!saved.ok) throw new Error(await saved.text());
+        revision = (await saved.json()).revision;
+      }
+    });
+    await page
+      .getByRole('button', { name: 'Validate and preview changes' })
+      .click();
+    await expect(page.getByRole('alert')).toContainText(
+      'Building underground-mine: changing utility channels is unsupported. Use power.',
+    );
+    await expect(
+      page.getByRole('button', { name: 'Publish validated revision' }),
+    ).toBeDisabled();
+    await page
+      .getByRole('button', {
+        name: 'Restore supported building layouts',
+        exact: true,
+      })
+      .click();
+    await expect(page.getByRole('status')).toContainText(
+      'Restored supported layouts for 2 buildings',
+    );
+    await expect(
+      page.getByRole('button', {
+        name: 'Restore supported building layouts',
+        exact: true,
+      }),
+    ).toHaveCount(0);
     await page
       .getByRole('button', { name: 'Validate and preview changes' })
       .click();
@@ -418,7 +485,12 @@ test.describe('administration with PostgreSQL', () => {
     const housing = snapshot.document.buildings.find(
       (b: { id: string }) => b.id === 'housing',
     );
-    expect(housing.icon).toBe(buildingIcon);
+    expect(housing).toMatchObject({
+      width: 1,
+      height: 1,
+      scale: 0.9,
+      icon: buildingIcon,
+    });
     expect(
       snapshot.document.buildings.find(
         (b: { id: string }) => b.id === 'survey-station',

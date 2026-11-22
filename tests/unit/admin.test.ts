@@ -140,6 +140,7 @@ describe.skipIf(!url)('admin against isolated PostgreSQL', () => {
       ['POST', 'entries'],
       ['POST', 'validate'],
       ['POST', 'publish'],
+      ['POST', 'restore-building-layouts'],
       ['POST', 'assets'],
     ] as const) {
       for (const [cookie, status] of [
@@ -788,6 +789,108 @@ describe.skipIf(!url)('admin against isolated PostgreSQL', () => {
         await post('publish', { revision: updated.json().revision }, auth);
       await rm(volume, { recursive: true, force: true });
     }
+  });
+  it('repairs fixed building fields in one draft revision without discarding artwork edits', async () => {
+    const auth = await login();
+    const initial = await catalogue(auth);
+    const original = (id: string) =>
+      initial.draft.document.buildings.find((entry) => entry.id === id)!;
+    const icon = await sharp({
+      create: { width: 32, height: 32, channels: 3, background: 'red' },
+    })
+      .png()
+      .toBuffer();
+    const art = await post(
+      'assets',
+      { slot: 'building-sprite', data: icon.toString('base64') },
+      auth,
+    );
+    expect(art.statusCode, art.body).toBe(200);
+
+    const edits = [
+      {
+        ...original('starship'),
+        width: 4,
+        scale: 0.8,
+        spriteAlignment: 'footprint-front',
+        sprite: art.json().id,
+      },
+      { ...original('underground-mine'), utilities: ['water', 'power'] },
+      { ...original('battery'), width: 4, height: 3 },
+    ];
+    let revision = initial.draft.revision;
+    for (const entry of edits) {
+      const saved = await post(
+        'entries',
+        { kind: 'buildings', create: false, entry, revision },
+        auth,
+      );
+      expect(saved.statusCode, saved.body).toBe(200);
+      revision = saved.json().revision;
+    }
+    const validation = await catalogue(auth);
+    expect(validation.errors.join()).toMatch(
+      /Building starship: footprint changes.*Use 2×2/,
+    );
+    expect(validation.errors.join()).toMatch(
+      /Building underground-mine: changing utility channels.*Use power/,
+    );
+    expect((await post('publish', { revision }, auth)).statusCode).toBe(422);
+    expect(
+      (await post('restore-building-layouts', { revision: revision - 1 }, auth))
+        .statusCode,
+    ).toBe(409);
+
+    const repaired = await post('restore-building-layouts', { revision }, auth);
+    expect(repaired.statusCode, repaired.body).toBe(200);
+    expect(repaired.json()).toEqual({ repaired: 2 });
+    const result = await catalogue(auth);
+    expect(result.draft.revision).toBe(revision + 1);
+    expect(result.current).toEqual(initial.current);
+    expect(result.errors).toEqual([]);
+    const entry = (id: string) =>
+      result.draft.document.buildings.find((item) => item.id === id)!;
+    expect(entry('starship')).toMatchObject({
+      width: 2,
+      height: 2,
+      scale: 0.8,
+      spriteAlignment: 'footprint-front',
+      sprite: art.json().id,
+    });
+    expect(entry('underground-mine').utilities).toEqual(['power']);
+    expect(entry('battery')).toMatchObject({ width: 4, height: 3 });
+    expect(result.draft.document.resources).toEqual(
+      initial.draft.document.resources,
+    );
+    expect(result.draft.document.recipes).toEqual(
+      initial.draft.document.recipes,
+    );
+    expect(
+      (
+        await db.buildingDefinition.findUniqueOrThrow({
+          where: { id: 'starship' },
+        })
+      ).document,
+    ).toEqual(entry('starship'));
+    expect(
+      (
+        await db.adminAudit.findFirstOrThrow({
+          where: { action: 'draft.restore-building-layouts' },
+        })
+      ).detail,
+    ).toEqual({
+      revision: revision + 1,
+      buildingIds: ['starship', 'underground-mine'],
+    });
+    expect(
+      (
+        await post('restore-building-layouts', { revision: revision + 1 }, auth)
+      ).json(),
+    ).toEqual({ repaired: 0 });
+    expect((await catalogue(auth)).draft.revision).toBe(revision + 1);
+    expect(
+      (await post('publish', { revision: revision + 1 }, auth)).statusCode,
+    ).toBe(200);
   });
   it('keeps invalid drafts private and rolls publication back without partial state', async () => {
     const auth = await login();
