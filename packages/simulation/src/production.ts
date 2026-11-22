@@ -233,7 +233,7 @@ export function cancelProduction(state: ColonyState, id: string): ColonyState {
 }
 function deploymentOccupancy(state: ColonyState) {
   const occupied = new Set(
-    state.buildings.flatMap((b) => cells(b).map(tileKey)),
+    state.buildings.flatMap((b) => cells(b, state).map(tileKey)),
   );
   for (const d of state.industry.drones) occupied.add(tileKey(d.position));
   for (const r of state.residents) occupied.add(tileKey(r.position));
@@ -247,7 +247,7 @@ export function deploymentPoint(
   occupied = deploymentOccupancy(state),
 ) {
   return (
-    connectionTiles(b, 'road').find(
+    connectionTiles(b, 'road', state).find(
       (t) => isExplored(state.world, t) && !occupied.has(tileKey(t)),
     ) ?? null
   );

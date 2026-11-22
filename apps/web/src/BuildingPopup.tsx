@@ -124,7 +124,8 @@ export function BuildingPopup({
         )}
         <div>
           <small>
-            Sector {building.x}, {building.y}
+            Sector {building.x}, {building.y} · {definition.width}×
+            {definition.height} tiles
           </small>
           <p>{entry.description || purposes[building.type]}</p>
         </div>
@@ -178,7 +179,7 @@ export function BuildingPopup({
       <details>
         <summary>Utility connections</summary>
         {(['water', 'oxygen', 'power', 'road'] as const).map((type) => {
-          const contacts = connectionTiles(building, type);
+          const contacts = connectionTiles(building, type, colony);
           if (!contacts.length) return null;
           const connected = contacts.filter((t) =>
             colony.infrastructure.some(

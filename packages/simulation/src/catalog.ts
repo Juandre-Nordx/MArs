@@ -230,6 +230,9 @@ export const buildingDefinitions: Record<BuildingType, BuildingDefinition> = {
     capacity: { metal: 320, nutrients: 120, carbonDioxide: 160 },
   }),
 };
+// The expanded starter battery bay fits within both landing layouts.
+export const maxBatteryFootprint = 5;
+
 export const landingCargo: Readonly<Stock> = Object.freeze({
   water: 200,
   oxygen: 200,

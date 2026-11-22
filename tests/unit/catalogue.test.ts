@@ -10,6 +10,14 @@ import {
   loadSave,
   step,
   construct,
+  buildingAt,
+  footprint,
+  maxBatteryFootprint,
+  isExplored,
+  networkFor,
+  connectionTiles,
+  routePreview,
+  walkingPath,
   capacities,
   runtimeCatalogue,
   productsFor,
@@ -107,6 +115,52 @@ describe('catalogue capabilities and physical dimensions', () => {
     expect(catalogueErrors(doc).join()).toMatch(/footprint changes/);
     expect(catalogueErrors(doc).join()).toMatch(/duplicate electricity charge/);
   });
+  it('limits the battery to the supported starter bays', () => {
+    const doc = document();
+    const battery = doc.buildings.find((b) => b.id === 'battery')!;
+    battery.width = maxBatteryFootprint + 1;
+    expect(catalogueErrors(doc)).toContain(
+      'Building battery: the starter layout supports footprints up to 5×5 tiles',
+    );
+    battery.width = maxBatteryFootprint;
+    battery.height = maxBatteryFootprint;
+    expect(catalogueErrors(doc)).toEqual([]);
+  });
+
+  it('deploys all supported battery sizes within explored terrain and with power and road access', () => {
+    for (let width = 1; width <= maxBatteryFootprint; width++) {
+      for (let height = 1; height <= maxBatteryFootprint; height++) {
+        const doc = document();
+        Object.assign(doc.buildings.find((b) => b.id === 'battery')!, {
+          width,
+          height,
+        });
+        const catalogue = snapshot(doc);
+        for (const layout of ['central', 'legacy'] as const) {
+          const colony = deployColony(newGame(42, layout, catalogue));
+          const battery = colony.buildings.find((b) => b.type === 'battery')!;
+          const tiles = footprint('battery', battery, colony);
+          expect(tiles).toHaveLength(width * height);
+          expect(tiles.every((tile) => isExplored(colony.world, tile))).toBe(
+            true,
+          );
+          expect(
+            networkFor(colony.networks, battery.id, 'power')?.producers,
+          ).toContain(colony.buildings.find((b) => b.type === 'solar')!.id);
+          const road = connectionTiles(battery, 'road', colony);
+          expect(
+            colony.infrastructure.some(
+              (segment) =>
+                segment.type === 'road' &&
+                road.some(
+                  (tile) => tile.x === segment.x && tile.y === segment.y,
+                ),
+            ),
+          ).toBe(true);
+        }
+      }
+    }
+  });
   it('rejects a starter capacity reduction that would destroy initial cargo', () => {
     const doc = document();
     for (const b of doc.buildings)
@@ -115,6 +169,41 @@ describe('catalogue capabilities and physical dimensions', () => {
   });
 });
 describe('immutable snapshots and save compatibility', () => {
+  it('uses the pinned battery footprint for building, movement and save reloads', () => {
+    const earlier = deployColony(newGame());
+    const doc = document();
+    Object.assign(doc.buildings.find((b) => b.id === 'battery')!, {
+      width: 4,
+      height: 3,
+    });
+    const current = deployColony(newGame(1, 'central', snapshot(doc)));
+    const built = construct(current, 'battery', { x: 250, y: 247 });
+    const edge = { x: 253, y: 249 };
+    const battery = built.buildings.at(-1)!;
+    expect(battery.type).toBe('battery');
+    expect(buildingAt(built, edge)?.id).toBe(battery.id);
+    expect(routePreview(built, 'power', [edge]).reason).toBe(
+      'Building footprint is occupied',
+    );
+    expect(walkingPath(built, { x: 249, y: 247 }, edge)).toBeNull();
+    expect(connectionTiles(battery, 'power', built)).toContainEqual({
+      x: 254,
+      y: 249,
+    });
+    expect(
+      buildingAt(loadSave(JSON.parse(JSON.stringify(built))), edge)?.id,
+    ).toBe(battery.id);
+    const restored = loadSave(JSON.parse(JSON.stringify(earlier)));
+    expect(
+      footprint(
+        'battery',
+        restored.buildings.find((b) => b.type === 'battery')!,
+        restored,
+      ),
+    ).toHaveLength(2);
+    expect(restored.buildings).toEqual(earlier.buildings);
+  });
+
   it('uses changed costs, capacities, solar and life-support recipes only in the selected snapshot', () => {
     const doc = document();
     doc.buildings.find((b) => b.id === 'housing')!.cost = [

@@ -308,6 +308,14 @@ test.describe('administration with PostgreSQL', () => {
     await expect(
       page.getByRole('status').filter({ hasText: 'Draft saved' }),
     ).toBeVisible();
+    await page.getByLabel('Search catalogue').fill('battery');
+    await page.locator('tbody tr').first().getByRole('button').click();
+    await page.getByLabel('Footprint width', { exact: true }).fill('4');
+    await page.getByLabel('Footprint height', { exact: true }).fill('3');
+    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Draft saved' }),
+    ).toBeVisible();
     await page.getByRole('button', { name: 'Recipes', exact: true }).click();
     await page.getByLabel('Search catalogue').fill('survey-drone');
     await page.locator('tbody tr').first().getByRole('button').click();
@@ -394,6 +402,20 @@ test.describe('administration with PostgreSQL', () => {
     expect(saved.catalogue.id).toBe(snapshot.id);
     await page.getByRole('button', { name: 'Load', exact: true }).click();
     await expect(page.getByRole('status')).toContainText('Browser save loaded');
+    const battery = saved.buildings.find(
+      (b: { type: string }) => b.type === 'battery',
+    );
+    await page.getByLabel('Map X', { exact: true }).fill(String(battery.x + 3));
+    await page.getByLabel('Map Y', { exact: true }).fill(String(battery.y + 2));
+    await page.getByRole('button', { name: 'Go to tile', exact: true }).click();
+    const batteryPanel = page.getByRole('dialog', {
+      name: 'Energy storage system',
+    });
+    await expect(batteryPanel).toContainText('4×3 tiles');
+    await page.screenshot({
+      path: testInfo.outputPath('battery-footprint.png'),
+    });
+    await page.keyboard.press('Escape');
     await page.route(`**/api/catalogue-assets/${housing.icon}`, (route) =>
       route.fulfill({
         status: 404,

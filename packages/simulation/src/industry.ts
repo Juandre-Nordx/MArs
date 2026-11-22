@@ -424,7 +424,9 @@ export function advanceIndustry(
     const atHome =
       same(drone.position, home) ||
       (drone.activity === 'charging' &&
-        connectionTiles(station, 'road').some((t) => same(t, drone.position)));
+        connectionTiles(station, 'road', state).some((t) =>
+          same(t, drone.position),
+        ));
     if (
       atHome &&
       drone.battery === definition.capacity &&
@@ -724,7 +726,7 @@ export function validateIndustry(
       if (surveyAreasOverlap(activeScans[i]!, activeScans[j]!))
         issue('Overlapping survey areas have concurrent owners');
   const occupied = new Set(
-    state.buildings.flatMap((b) => cells(b).map(tileKey)),
+    state.buildings.flatMap((b) => cells(b, state).map(tileKey)),
   );
   for (const d of drones) {
     if (

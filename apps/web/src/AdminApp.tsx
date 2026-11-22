@@ -9,6 +9,7 @@ import {
 } from 'react';
 import {
   builtinCatalogue,
+  maxBatteryFootprint,
   type CatalogueDocument,
   type ResourceEntry,
   type BuildingEntry,
@@ -726,7 +727,7 @@ export default function AdminApp() {
                 label="Footprint width"
                 value={entry.width}
                 min={1}
-                max={8}
+                max={entry.id === 'battery' ? maxBatteryFootprint : 8}
                 step="1"
                 onChange={(width) => change({ width })}
               />
@@ -734,7 +735,7 @@ export default function AdminApp() {
                 label="Footprint height"
                 value={entry.height}
                 min={1}
-                max={8}
+                max={entry.id === 'battery' ? maxBatteryFootprint : 8}
                 step="1"
                 onChange={(height) => change({ height })}
               />
@@ -759,10 +760,12 @@ export default function AdminApp() {
             />
             {electricity(entry.electricity, 'Building operating demand')}
             <p>
-              Geometry and utility capability changes require a future
-              layout/network migration. Equipment requirements are unsupported.
-              Storage capacities apply to both inputs and outputs; utility
-              contents stay in their resource network.
+              {entry.id === 'battery'
+                ? `Battery footprints can be 1–${maxBatteryFootprint} tiles wide and high. New colonies use the published dimensions. Existing saves keep their pinned size.`
+                : 'Footprint changes for other active buildings require a supported starter layout.'}{' '}
+              Utility channels and equipment requirements are fixed. Storage
+              capacities apply to both inputs and outputs. Utility contents stay
+              in their resource network.
             </p>
             <fieldset>
               <legend>Utility capabilities</legend>
