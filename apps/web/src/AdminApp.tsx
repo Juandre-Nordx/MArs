@@ -32,6 +32,7 @@ type Data = {
   artworkLimits?: {
     inputBytes: number;
     outputBytes: number;
+    spriteOutputBytes?: number;
     minSide: number;
     maxSide: number;
     iconSide: number;
@@ -556,8 +557,13 @@ export default function AdminApp() {
               {field === 'icon'
                 ? ` Larger icons shrink to fit ${limits.iconSide}×${limits.iconSide} px.`
                 : ' Sprites keep their original dimensions.'}{' '}
-              Processed PNG limit {displayBytes(limits.outputBytes)}. Publishing
-              makes the saved artwork public.
+              Processed PNG limit{' '}
+              {displayBytes(
+                field === 'sprite'
+                  ? (limits.spriteOutputBytes ?? limits.outputBytes)
+                  : limits.outputBytes,
+              )}
+              . Publishing makes the saved artwork public.
             </>
           ) : (
             'Artwork limits are unavailable. Refresh after the API is updated.'

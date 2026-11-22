@@ -463,6 +463,29 @@ describe.skipIf(!url)('admin against isolated PostgreSQL', () => {
       expect(pixel[3]).toBe(alpha);
     }
 
+    const spriteUpload = await post(
+      'assets',
+      { ...payload, slot: 'building-sprite' },
+      auth,
+    );
+    expect(spriteUpload.statusCode, spriteUpload.body).toBe(200);
+    expect(spriteUpload.json()).toMatchObject({ width: 1280, height: 1280 });
+    const spritePreview = await app.inject({
+      url: `/api/admin/assets/${spriteUpload.json().id}`,
+      headers: auth,
+    });
+    expect(spritePreview.statusCode).toBe(200);
+    expect(spritePreview.rawPayload.length).toBeGreaterThan(2 * 1024 * 1024);
+    expect(spritePreview.rawPayload.length).toBeLessThanOrEqual(
+      8 * 1024 * 1024,
+    );
+    const dimensions = await sharp(spritePreview.rawPayload).metadata();
+    expect(dimensions).toMatchObject({
+      width: 1280,
+      height: 1280,
+      hasAlpha: true,
+    });
+
     for (const extra of [1, 4096]) {
       const response = await post(
         'assets',
@@ -479,7 +502,8 @@ describe.skipIf(!url)('admin against isolated PostgreSQL', () => {
       databaseUrl: url,
       env: {
         ADMIN_UPLOAD_INPUT_LIMIT_BYTES: '8192',
-        ADMIN_UPLOAD_LIMIT_BYTES: '1024',
+        ADMIN_UPLOAD_LIMIT_BYTES: '2048',
+        ADMIN_UPLOAD_SPRITE_OUTPUT_LIMIT_BYTES: '1024',
       },
       logger: false,
       admin: { origin, now: () => time },
@@ -488,7 +512,11 @@ describe.skipIf(!url)('admin against isolated PostgreSQL', () => {
       const limits = (
         await limited.inject({ url: '/api/admin/catalogue', headers: auth })
       ).json().artworkLimits;
-      expect(limits).toMatchObject({ inputBytes: 8192, outputBytes: 1024 });
+      expect(limits).toMatchObject({
+        inputBytes: 8192,
+        outputBytes: 2048,
+        spriteOutputBytes: 1024,
+      });
       const overInput = await limited.inject({
         method: 'POST',
         url: '/api/admin/assets',
