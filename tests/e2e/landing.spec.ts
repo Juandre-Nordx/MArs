@@ -45,5 +45,8 @@ test('real new-game creation lands at the map centre and preserves it through sa
   expect(after.starterLayout).toBe('courtyard');
   await page.getByRole('button', { name: 'Dismiss message' }).click();
   await page.getByRole('button', { name: 'Hide inspector' }).click();
+  await expect
+    .poll(async () => (await canvas.boundingBox())?.width ?? 0)
+    .toBeGreaterThan(box.width);
   await page.screenshot({ path: testInfo.outputPath('starter-courtyard.png') });
 });
