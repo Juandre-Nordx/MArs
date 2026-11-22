@@ -65,6 +65,7 @@ export const buildingEntrySchema = z
     ...common,
     category: z.string().min(1).max(60),
     sprite: assetRefSchema,
+    spriteAlignment: z.enum(['tile-center', 'footprint-front']).optional(),
     scale: z.number().min(0.1).max(4),
     anchor: z
       .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })

@@ -16,6 +16,7 @@ import {
   type RecipeEntry,
 } from '@mars/simulation';
 import { CatalogueArt } from './catalogue-art';
+import { SpritePreview } from './SpritePreview';
 import './admin.css';
 type Kind = 'resources' | 'buildings' | 'recipes';
 type Entry = ResourceEntry | BuildingEntry | RecipeEntry;
@@ -447,7 +448,14 @@ export default function AdminApp() {
       );
       if (uploadRequest.current !== controller || signal.aborted) return;
       if (activeSession !== session) setSession(activeSession);
-      change({ [field]: result.id });
+      if (
+        field === 'sprite' &&
+        'sprite' in entry &&
+        entry.sprite.startsWith('placeholder:') &&
+        !entry.spriteAlignment
+      )
+        change({ sprite: result.id, spriteAlignment: 'footprint-front' });
+      else change({ [field]: result.id });
       setArtworkFeedback((feedback) => ({ ...feedback, [field]: { result } }));
     } catch (error) {
       if (uploadRequest.current !== controller || controller.signal.aborted)
@@ -875,21 +883,23 @@ export default function AdminApp() {
               )}
               <fieldset>
                 <legend>Sprite alignment preview</legend>
-                <div className="admin-sprite-preview">
-                  <CatalogueArt
-                    reference={entry.sprite}
-                    kind="building"
-                    admin
-                    alt="Aligned isometric preview"
-                    style={{
-                      width: 128 * entry.scale,
-                      position: 'absolute',
-                      left: '50%',
-                      top: '75%',
-                      transform: `translate(${-100 * entry.anchor.x}%,${-100 * entry.anchor.y}%)`,
-                    }}
-                  />
-                </div>
+                <SpritePreview key={entry.sprite} entry={entry} />
+                <Field label="Sprite alignment">
+                  <select
+                    value={entry.spriteAlignment ?? 'tile-center'}
+                    onChange={(event) =>
+                      change({ spriteAlignment: event.target.value })
+                    }
+                  >
+                    <option value="footprint-front">Footprint front</option>
+                    <option value="tile-center">First tile (legacy)</option>
+                  </select>
+                </Field>
+                <small>
+                  Match the sprite's front ground corner to the dot. Start with
+                  Anchor X 0.5 and Y 1. Lower Anchor Y if there is transparent
+                  space below the sprite. Adjust scale to fit the tile grid.
+                </small>
                 <Num
                   label="Sprite scale"
                   value={entry.scale}

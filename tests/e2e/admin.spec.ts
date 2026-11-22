@@ -312,6 +312,44 @@ test.describe('administration with PostgreSQL', () => {
     await page.locator('tbody tr').first().getByRole('button').click();
     await page.getByLabel('Footprint width', { exact: true }).fill('4');
     await page.getByLabel('Footprint height', { exact: true }).fill('3');
+    const batteryArt = await sharp(
+      Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="224" height="150" viewBox="0 0 224 150">' +
+          '<path fill="#414c54" d="M0 58L96 10l128 64-96 48z"/>' +
+          '<path fill="#364853" d="M0 58l128 64v28L0 86z"/>' +
+          '<path fill="#58717a" d="M128 122l96-48v28l-96 48z"/>' +
+          '<path fill="#76ccb5" d="m15 71 40 20v9L15 80zm55 28 40 20v9l-40-20z"/>' +
+          '</svg>',
+      ),
+    )
+      .png()
+      .toBuffer();
+    await page.getByLabel('Upload isometric sprite').setInputFiles({
+      name: 'battery.png',
+      mimeType: 'image/png',
+      buffer: batteryArt,
+    });
+    await expect(
+      page
+        .getByRole('group', { name: 'Isometric sprite', exact: true })
+        .getByRole('status'),
+    ).toContainText('Uploaded');
+    const alignment = page.getByLabel('Sprite alignment', { exact: true });
+    const anchorDot = page.locator('.admin-sprite-preview circle');
+    await expect(alignment).toHaveValue('footprint-front');
+    await alignment.selectOption('tile-center');
+    await expect(anchorDot).toHaveAttribute('cy', '0');
+    await alignment.selectOption('footprint-front');
+    await expect(anchorDot).toHaveAttribute('cx', '32');
+    await expect(anchorDot).toHaveAttribute('cy', '96');
+    await page.getByLabel('Anchor X', { exact: true }).fill(String(128 / 224));
+    await expect(page.locator('.admin-sprite-preview polygon')).toHaveCount(12);
+    await page
+      .getByAltText('Aligned isometric preview')
+      .scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: testInfo.outputPath('battery-alignment-preview.png'),
+    });
     await page.getByRole('button', { name: 'Save draft', exact: true }).click();
     await expect(
       page.getByRole('status').filter({ hasText: 'Draft saved' }),
@@ -359,6 +397,14 @@ test.describe('administration with PostgreSQL', () => {
     const published = await page.request.get('/api/catalogues/current');
     expect(published.ok()).toBe(true);
     const snapshot = await published.json();
+    const publishedBattery = snapshot.document.buildings.find(
+      (b: { id: string }) => b.id === 'battery',
+    );
+    expect(publishedBattery).toMatchObject({
+      width: 4,
+      height: 3,
+      spriteAlignment: 'footprint-front',
+    });
     expect(
       snapshot.document.resources.find(
         (r: { id: string }) => r.id === 'planned-test-alloy',
@@ -391,8 +437,16 @@ test.describe('administration with PostgreSQL', () => {
     await page.goto('/');
     await page.locator('.catalogue-options summary').click();
     await page.getByLabel('New colony catalogue').selectOption(snapshot.id);
+    const loadedBatterySprite = page.waitForResponse(
+      (res) =>
+        res
+          .url()
+          .endsWith(`/api/catalogue-assets/${publishedBattery.sprite}`) &&
+        res.ok(),
+    );
     await page.getByRole('button', { name: 'New game', exact: true }).click();
     await page.getByRole('button', { name: 'Skip landing' }).click();
+    await loadedBatterySprite;
     await expect(page.locator('canvas')).toBeVisible();
     await page.getByRole('button', { name: 'Pause', exact: true }).click();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
