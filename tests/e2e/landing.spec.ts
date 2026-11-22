@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 test('real new-game creation lands at the map centre and preserves it through save/load', async ({
   page,
-}) => {
+}, testInfo) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'New game', exact: true }).click();
   await page.getByRole('button', { name: 'Skip landing', exact: true }).click();
@@ -28,6 +28,12 @@ test('real new-game creation lands at the map centre and preserves it through sa
   expect(before.landingZone).toEqual({ x: 256, y: 256 });
   expect(before.world.generatorVersion).toBe(2);
   expect(before.buildings).toHaveLength(19);
+  expect(before.starterLayout).toBe('courtyard');
+  const homes = before.buildings.filter(
+    (b: { type: string }) => b.type === 'housing',
+  );
+  for (const y of [250, 253])
+    expect(homes.filter((b: { y: number }) => b.y === y)).toHaveLength(5);
   await page.getByRole('button', { name: 'Load', exact: true }).click();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   const after = await page.evaluate(() =>
@@ -36,4 +42,11 @@ test('real new-game creation lands at the map centre and preserves it through sa
   expect(after.landingZone).toEqual(before.landingZone);
   expect(after.buildings).toEqual(before.buildings);
   expect(after.world).toEqual(before.world);
+  expect(after.starterLayout).toBe('courtyard');
+  await page.getByRole('button', { name: 'Dismiss message' }).click();
+  await page.getByRole('button', { name: 'Hide inspector' }).click();
+  await expect
+    .poll(async () => (await canvas.boundingBox())?.width ?? 0)
+    .toBeGreaterThan(box.width);
+  await page.screenshot({ path: testInfo.outputPath('starter-courtyard.png') });
 });

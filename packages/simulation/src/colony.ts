@@ -134,6 +134,7 @@ const baseColonySchema = z
     industry: industrySchema,
     production: productionSchema,
     catalogue: catalogueSnapshotSchema,
+    starterLayout: z.literal('courtyard').optional(),
     tick: integer,
     name: z.string().min(1).max(64),
     inventory: stockSchema,
@@ -468,6 +469,7 @@ export function newGame(
     industry: emptyIndustry(),
     production: emptyProduction(),
     catalogue,
+    ...(layout === 'central' ? { starterLayout: 'courtyard' } : {}),
     tick: 0,
     name: 'First Colony',
     inventory: { ...landingCargo },
@@ -496,27 +498,33 @@ export function deployColony(state: ColonyState): ColonyState {
   const dx = state.landingZone.x - 9;
   const dy = state.landingZone.y - 9;
   const battery = runtimeCatalogue(state).buildings.battery;
-  // Larger batteries use the clear southeast bay without moving other buildings.
-  const batterySite =
-    battery.width <= 3 && battery.height <= 4
+  const courtyard = state.starterLayout === 'courtyard';
+  const manifest: (Tile & { type: BuildingType })[] = [
+    { type: 'starship', x: 9, y: 9 },
+  ];
+  for (let index = 0; index < 10; index++) {
+    manifest.push({
+      type: 'housing',
+      x: courtyard ? 3 + 2 * (index % 5) : 4 + index,
+      y: courtyard ? 3 + 3 * Math.floor(index / 5) : 6,
+    });
+  }
+  // The courtyard battery bay accommodates up to 5×5 west of the deposits.
+  const batterySite = courtyard
+    ? { x: 7, y: 14 }
+    : battery.width <= 3 && battery.height <= 4
       ? { x: 9, y: 15 }
       : { x: 14, y: 14 };
-  const manifest: { type: BuildingType; x: number; y: number }[] = [
-    { type: 'starship', x: 9, y: 9 },
-    ...Array.from({ length: 10 }, (_, index) => ({
-      type: 'housing' as const,
-      x: 4 + index,
-      y: 6,
-    })),
-    { type: 'oxygen-generator', x: 4, y: 9 },
-    { type: 'oxygen-tank', x: 4, y: 12 },
+  manifest.push(
+    { type: 'oxygen-generator', x: courtyard ? 3 : 4, y: 9 },
+    { type: 'oxygen-tank', x: courtyard ? 3 : 4, y: 12 },
     { type: 'water-recycler', x: 6, y: 9 },
     { type: 'water-tank', x: 6, y: 12 },
-    { type: 'farm', x: 12, y: 10 },
-    { type: 'solar', x: 4, y: 15 },
+    { type: 'farm', x: courtyard ? 13 : 12, y: courtyard ? 9 : 10 },
+    { type: 'solar', x: courtyard ? 3 : 4, y: 15 },
     { type: 'battery', ...batterySite },
-    { type: 'warehouse', x: 12, y: 14 },
-  ];
+    { type: 'warehouse', x: 12, y: courtyard ? 13 : 14 },
+  );
   const deployed: ColonyState = {
     ...state,
     inventory: { ...state.inventory },

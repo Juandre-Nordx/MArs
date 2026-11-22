@@ -42,3 +42,23 @@ it('keeps the original placement for previously published sprite settings', () =
     spritePlacement(footprint, { scale: 0.75, spriteAlignment: 'tile-center' }),
   ).toEqual(original);
 });
+
+it('fits new colony artwork to the footprint with space around habitats', () => {
+  expect(
+    spritePlacement({ width: 1, height: 1 }, { id: 'housing', scale: 1 }, true),
+  ).toEqual({ x: 0, y: 16, width: 51.2 });
+  const wide = spritePlacement(
+    { width: 3, height: 2 },
+    { id: 'farm', scale: 1.25 },
+    true,
+  );
+  expect(wide).toMatchObject({ x: 32, y: 64 });
+  expect(wide.width).toBeCloseTo(184);
+  expect(
+    spritePlacement(
+      { width: 2, height: 2 },
+      { scale: 1, spriteAlignment: 'tile-center' },
+      true,
+    ),
+  ).toEqual({ x: 0, y: 0, width: 128 });
+});
