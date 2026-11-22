@@ -139,6 +139,36 @@ function stock(list: z.infer<typeof quantity>[]) {
       result[item.resourceId as Resource] = item.quantity;
   return result;
 }
+export function buildingLayoutRules(entry: BuildingEntry) {
+  const type = buildingTypeSchema.safeParse(entry.id);
+  if (
+    entry.status !== 'active' ||
+    entry.support !== 'implemented' ||
+    !type.success
+  )
+    return undefined;
+
+  const base = buildingDefinitions[type.data];
+  const footprintEditable = type.data === 'battery';
+  const width = footprintEditable
+    ? Math.min(entry.width, maxBatteryFootprint)
+    : base.width;
+  const height = footprintEditable
+    ? Math.min(entry.height, maxBatteryFootprint)
+    : base.height;
+  const utilities = Object.keys(base.ports) as BuildingEntry['utilities'];
+  const changes: Partial<
+    Pick<BuildingEntry, 'width' | 'height' | 'utilities'>
+  > = {};
+  if (entry.width !== width || entry.height !== height) {
+    changes.width = width;
+    changes.height = height;
+  }
+  if ([...entry.utilities].sort().join() !== [...utilities].sort().join())
+    changes.utilities = utilities;
+  return { footprintEditable, changes };
+}
+
 export function catalogueErrors(doc: CatalogueDocument): string[] {
   const errors: string[] = [];
   for (const group of ['resources', 'buildings', 'recipes'] as const)
@@ -186,34 +216,27 @@ export function catalogueErrors(doc: CatalogueDocument): string[] {
     validateQuantities(b.cost, b.id);
     validateQuantities(b.storage, b.id);
     if (b.status !== 'active') continue;
-    if (
-      b.support !== 'implemented' ||
-      !buildingTypeSchema.safeParse(b.id).success
-    ) {
+    const layout = buildingLayoutRules(b);
+    if (!layout) {
       errors.push(`Building ${b.id}: unsupported active mechanic`);
       continue;
     }
-    const base = buildingDefinitions[b.id as BuildingType];
     if (
       !['Housing', 'Life support', 'Power', 'Storage', 'Mining'].includes(
         b.category,
       )
     )
       errors.push(`Building ${b.id}: unsupported construction category`);
-    if (b.id === 'battery') {
-      if (b.width > maxBatteryFootprint || b.height > maxBatteryFootprint)
-        errors.push(
-          `Building battery: the starter layout supports footprints up to ${maxBatteryFootprint}×${maxBatteryFootprint} tiles`,
-        );
-    } else if (b.width !== base.width || b.height !== base.height)
+    const { changes } = layout;
+    if (changes.width !== undefined)
       errors.push(
-        `Building ${b.id}: footprint changes require a supported starter-layout migration`,
+        b.id === 'battery'
+          ? `Building battery: the starter layout supports footprints up to ${maxBatteryFootprint}×${maxBatteryFootprint} tiles`
+          : `Building ${b.id}: footprint changes require a supported starter-layout migration. Use ${changes.width}×${changes.height} tiles or adjust the sprite alignment.`,
       );
-    if (
-      [...b.utilities].sort().join() !== Object.keys(base.ports).sort().join()
-    )
+    if (changes.utilities)
       errors.push(
-        `Building ${b.id}: changing utility channels is unsupported; materials must remain isolated`,
+        `Building ${b.id}: changing utility channels is unsupported. Use ${changes.utilities.join(', ') || 'no utility channels'}.`,
       );
     if (b.cost.some((q) => q.resourceId !== 'metal'))
       errors.push(

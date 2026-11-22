@@ -9,6 +9,7 @@ import {
 } from 'react';
 import {
   builtinCatalogue,
+  buildingLayoutRules,
   maxBatteryFootprint,
   type CatalogueDocument,
   type ResourceEntry,
@@ -108,6 +109,7 @@ function Num({
   min = 0,
   max = 1000000,
   step = 'any',
+  disabled = false,
 }: {
   label: string;
   value: number;
@@ -115,6 +117,7 @@ function Num({
   min?: number;
   max?: number;
   step?: string;
+  disabled?: boolean;
 }) {
   return (
     <Field label={label}>
@@ -123,6 +126,7 @@ function Num({
         min={min}
         max={max}
         step={step}
+        disabled={disabled}
         required
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
@@ -608,6 +612,7 @@ export default function AdminApp() {
   function form() {
     if (!entry || !data?.draft) return null;
     const resources = data.draft.document.resources;
+    const layout = 'sprite' in entry ? buildingLayoutRules(entry) : undefined;
     return (
       <form
         className="admin-editor"
@@ -737,6 +742,7 @@ export default function AdminApp() {
                 min={1}
                 max={entry.id === 'battery' ? maxBatteryFootprint : 8}
                 step="1"
+                disabled={layout?.footprintEditable === false}
                 onChange={(width) => change({ width })}
               />
               <Num
@@ -745,6 +751,7 @@ export default function AdminApp() {
                 min={1}
                 max={entry.id === 'battery' ? maxBatteryFootprint : 8}
                 step="1"
+                disabled={layout?.footprintEditable === false}
                 onChange={(height) => change({ height })}
               />
               <Num
@@ -768,12 +775,11 @@ export default function AdminApp() {
             />
             {electricity(entry.electricity, 'Building operating demand')}
             <p>
-              {entry.id === 'battery'
+              {layout?.footprintEditable
                 ? `Battery footprints can be 1–${maxBatteryFootprint} tiles wide and high. New colonies use the published dimensions. Existing saves keep their pinned size.`
-                : 'Footprint changes for other active buildings require a supported starter layout.'}{' '}
-              Utility channels and equipment requirements are fixed. Storage
-              capacities apply to both inputs and outputs. Utility contents stay
-              in their resource network.
+                : layout
+                  ? 'This building has a fixed gameplay footprint. Use Sprite alignment and Sprite scale to fit the artwork to its tiles.'
+                  : 'Planned building geometry can be recorded in the draft.'}
             </p>
             <fieldset>
               <legend>Utility capabilities</legend>
@@ -782,6 +788,7 @@ export default function AdminApp() {
                   <input
                     type="checkbox"
                     checked={entry.utilities.includes(t)}
+                    disabled={!!layout}
                     onChange={(e) =>
                       change({
                         utilities: e.target.checked
@@ -794,6 +801,19 @@ export default function AdminApp() {
                 </label>
               ))}
             </fieldset>
+            {layout && Object.keys(layout.changes).length > 0 && (
+              <p>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => change(layout.changes)}
+                >
+                  Restore supported layout for this building
+                </button>{' '}
+                Save the draft to apply the repair. Artwork and other fields
+                stay in your edit.
+              </p>
+            )}
             <fieldset>
               <legend>Storage capacities</legend>
               {entry.storage.map((s, i) => (
@@ -1076,6 +1096,11 @@ export default function AdminApp() {
       </main>
     );
   const draft = data?.draft;
+  const layoutsToRepair =
+    draft?.document.buildings.filter((entry) => {
+      const rules = buildingLayoutRules(entry);
+      return rules && Object.keys(rules.changes).length;
+    }) ?? [];
   const rows = draft
     ? draft.document[kind]
         .filter((e) =>
@@ -1395,6 +1420,34 @@ export default function AdminApp() {
               Publish validated revision
             </button>
             <h2>Validation</h2>
+            {layoutsToRepair.length > 0 && (
+              <section aria-label="Unsupported building layouts">
+                <p>
+                  Restore supported footprints and utility channels for{' '}
+                  {layoutsToRepair.length}{' '}
+                  {layoutsToRepair.length === 1 ? 'building' : 'buildings'}.
+                  Artwork, sprite alignment, and other draft edits stay in
+                  place.
+                </p>
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    void action(async () => {
+                      const { repaired } = await request<{ repaired: number }>(
+                        'restore-building-layouts',
+                        { revision: draft.revision },
+                      );
+                      await refresh();
+                      setMessage(
+                        `Restored supported layouts for ${repaired} ${repaired === 1 ? 'building' : 'buildings'}. Validate the draft before publishing.`,
+                      );
+                    })
+                  }
+                >
+                  Restore supported building layouts
+                </button>
+              </section>
+            )}
             {data.errors.length ? (
               <ul>
                 {data.errors.map((e, i) => (
