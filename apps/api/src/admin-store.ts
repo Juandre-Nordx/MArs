@@ -9,6 +9,7 @@ import {
   type CatalogueDocument,
 } from '@mars/simulation';
 import { createHash } from 'node:crypto';
+import type { AssetStorage } from './asset-storage.js';
 export class AdminError extends Error {
   constructor(
     public statusCode: number,
@@ -175,6 +176,7 @@ export async function updateDraft(
 export async function draftErrors(
   db: Pick<Prisma.TransactionClient, 'catalogueAsset'>,
   doc: CatalogueDocument,
+  storage?: AssetStorage,
 ) {
   const errors = catalogueErrors(doc);
   const references = [
@@ -196,7 +198,14 @@ export async function draftErrors(
         ],
       },
     },
-    select: { id: true, slot: true },
+    select: {
+      id: true,
+      slot: true,
+      digest: true,
+      storageBackend: true,
+      storageKey: true,
+      byteSize: true,
+    },
   });
   for (const r of references) {
     if (r.ref.startsWith('placeholder:')) {
@@ -213,12 +222,22 @@ export async function draftErrors(
     if (!asset || asset.slot !== r.slot)
       errors.push(`Missing or incompatible ${r.slot}: ${r.ref}`);
   }
+  if (storage) {
+    for (const asset of assets) {
+      try {
+        await storage.verify(asset);
+      } catch {
+        errors.push(`Artwork unavailable: ${asset.id}`);
+      }
+    }
+  }
   return errors;
 }
 export async function publishDraft(
   db: PrismaClient,
   actorId: string,
   revision: number,
+  storage: AssetStorage,
 ) {
   return db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(440041)::text`;
@@ -236,7 +255,7 @@ export async function publishDraft(
         'Draft/current version changed; reload before publishing',
       );
     const doc = catalogueDocumentSchema.parse(draft.document);
-    const errors = await draftErrors(tx, doc);
+    const errors = await draftErrors(tx, doc, storage);
     if (errors.length) throw new AdminError(422, errors.join('\n'));
     const claim = await tx.catalogueDraft.updateMany({
       where: { id: 'main', revision },

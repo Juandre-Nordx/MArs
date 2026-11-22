@@ -12,6 +12,8 @@ V0.4 adds `/admin`: protected administrator sessions, resource/building/recipe e
 
 See [V0.4 setup, exact configuration, capability limits and verification](docs/V0.4.md). Administration needs PostgreSQL; gameplay continues without it. Production migrations and initial administrator creation are explicit operator commands, never startup actions.
 
+For split Railway deployments, mount the artwork volume on `@mars/api` at `/data/uploads`. Set `ASSET_STORAGE_DRIVER=volume` and `ASSET_STORAGE_PATH=/data/uploads` there. New artwork files go in `/data/uploads/catalogue-assets/`. The web service proxies `/api/*` to the API. Back up PostgreSQL and the artwork volume together. [Railway setup and recovery](docs/RAILWAY.md#railway-split-services-and-artwork-volume)
+
 ## Independent drone jobs
 
 V0.3.3.1 keeps one drone assigned to each survey job or mine. Overlapping survey areas wait for their current owner to finish, even when they come from different stations or use different scan modes. Other charged drones skip those waiting areas and take independent compatible queues. After finishing, a drone can take another reachable job directly when its battery has enough return reserve.

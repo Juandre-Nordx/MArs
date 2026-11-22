@@ -3,7 +3,13 @@ import cookie from '@fastify/cookie';
 import type { PrismaClient } from '@prisma/client';
 import { z, ZodError } from 'zod';
 import sharp from 'sharp';
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
+import {
+  assetDigest,
+  AssetStorageError,
+  maxAssetBytes,
+  type AssetStorage,
+} from './asset-storage.js';
 import {
   builtinCatalogue,
   catalogueDocumentSchema,
@@ -27,6 +33,7 @@ import {
 export type AdminOptions = {
   db: () => PrismaClient;
   configured: boolean;
+  assetStorage: AssetStorage;
   production?: boolean;
   origin?: string;
   now?: () => number;
@@ -109,7 +116,7 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
   // All admin errors are bounded and sanitised; database details and credential values never leave the server.
   await app.register(async (routes) => {
     routes.setErrorHandler((error, _request, reply) => {
-      if (error instanceof AdminError)
+      if (error instanceof AdminError || error instanceof AssetStorageError)
         return reply.code(error.statusCode).send({ error: error.message });
       if (error instanceof ZodError)
         return reply.code(422).send({
@@ -289,6 +296,7 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
         errors: await draftErrors(
           options.db(),
           catalogueDocumentSchema.parse(draft.document),
+          options.assetStorage,
         ),
       };
     });
@@ -298,7 +306,12 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
         .object({ revision: z.number().int().positive() })
         .strict()
         .parse(req.body);
-      return publishDraft(options.db(), s.userId, body.revision);
+      return publishDraft(
+        options.db(),
+        s.userId,
+        body.revision,
+        options.assetStorage,
+      );
     });
     routes.get('/api/admin/audit', async (req) => {
       await authorise(req);
@@ -307,7 +320,7 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
         .adminAudit.findMany({ orderBy: { id: 'desc' }, take: 200 });
     });
     const maxBytes = Math.min(
-      8 * 1024 * 1024,
+      maxAssetBytes,
       Math.max(1024, options.uploadLimit ?? 2 * 1024 * 1024),
     );
     routes.post(
@@ -339,54 +352,86 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
             415,
             'Only PNG/WebP image contents are supported; models and archives are rejected',
           );
-        let bytes: Buffer, width: number, height: number;
+        const icon = body.slot !== 'building-sprite';
+        let result: {
+          data: Buffer<ArrayBuffer>;
+          info: { width: number; height: number };
+        };
         try {
           const image = sharp(input, {
             limitInputPixels: 4 * 1024 * 1024,
-            failOn: 'error',
+            failOn: 'warning',
           });
           const meta = await image.metadata();
-          width = meta.width ?? 0;
-          height = meta.height ?? 0;
-          const max = body.slot === 'building-sprite' ? 2048 : 512;
+          const width = meta.width ?? 0;
+          const height = meta.height ?? 0;
           if (
+            (meta.format !== 'png' && meta.format !== 'webp') ||
             width < 16 ||
             height < 16 ||
-            width > max ||
-            height > max ||
+            width > 2048 ||
+            height > 2048 ||
             (meta.pages ?? 1) > 1
           )
-            throw new Error('Invalid dimensions');
-          bytes = await image.png().toBuffer();
-          if (bytes.length > maxBytes)
-            throw new Error('Canonical image too large');
+            throw new Error('Invalid dimensions or format');
+
+          if (icon)
+            image.resize(512, 512, { fit: 'inside', withoutEnlargement: true });
+          result = await image.png().toBuffer({ resolveWithObject: true });
+          if (result.info.width < 16 || result.info.height < 16)
+            throw new Error('Icon aspect ratio too narrow');
         } catch {
           throw new AdminError(
             422,
-            'Invalid image contents, dimensions or size (icons 16–512; sprites 16–2048; still images only)',
+            'Invalid or unreadable PNG/WebP. Use a still image 16–2048 px per side. Icons are resized to fit 512 px and must remain at least 16 px per side.',
           );
         }
+        const {
+          data: bytes,
+          info: { width, height },
+        } = result;
+        if (bytes.length > maxBytes)
+          throw new AdminError(
+            413,
+            'Processed image exceeds the upload limit. Try a smaller image.',
+          );
+
         const id = randomUUID();
-        await options.db().$transaction(async (tx) => {
-          await tx.catalogueAsset.create({
-            data: {
-              id,
-              slot: body.slot,
-              mime: 'image/png',
-              width,
-              height,
-              digest: createHash('sha256').update(bytes).digest('hex'),
-              data: bytes,
-            },
+        const payload = await options.assetStorage.store(id, bytes);
+        try {
+          await options.db().$transaction(async (tx) => {
+            await tx.catalogueAsset.create({
+              data: {
+                id,
+                slot: body.slot,
+                mime: 'image/png',
+                width,
+                height,
+                digest: assetDigest(bytes),
+                ...payload,
+              },
+            });
+            await tx.adminAudit.create({
+              data: {
+                actorId: s.userId,
+                action: 'asset.upload',
+                detail: { id, slot: body.slot, width, height },
+              },
+            });
           });
-          await tx.adminAudit.create({
-            data: {
-              actorId: s.userId,
-              action: 'asset.upload',
-              detail: { id, slot: body.slot, width, height },
-            },
+        } catch {
+          // A connection failure may leave the commit outcome unknown. Retain the
+          // file so a committed record can never reference bytes we removed.
+          req.log.warn({
+            event: 'asset_upload_metadata_failed',
+            assetId: id,
+            storageBackend: payload.storageBackend,
           });
-        });
+          throw new AdminError(
+            503,
+            'Artwork upload could not confirm its database record. Retry the upload when the database is available.',
+          );
+        }
         return { id, slot: body.slot, width, height };
       },
     );
@@ -400,7 +445,9 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
         .db()
         .catalogueAsset.findUnique({ where: { id } });
       if (!asset) throw new AdminError(404, 'Asset not found');
-      return reply.type(asset.mime).send(Buffer.from(asset.data));
+      return reply
+        .type(asset.mime)
+        .send(await options.assetStorage.read(asset, asset.data));
     });
   });
   async function snapshot(version?: string) {
@@ -466,24 +513,40 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
     }
   });
   app.get('/api/catalogue-assets/:id', async (req, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    const id = z
+      .string()
+      .uuid()
+      .safeParse((req.params as { id: string }).id);
+    if (!id.success)
+      return reply
+        .header('Cache-Control', 'no-store')
+        .code(404)
+        .send({ error: 'Published asset not found' });
     try {
-      const id = z
-        .string()
-        .uuid()
-        .parse((req.params as { id: string }).id);
       requireDatabase();
-      const asset = await options
-        .db()
-        .catalogueAsset.findFirst({ where: { id, versions: { some: {} } } });
-      if (!asset)
-        return reply.code(404).send({ error: 'Published asset not found' });
+      const asset = await options.db().catalogueAsset.findFirst({
+        where: { id: id.data, versions: { some: {} } },
+      });
+      if (!asset) throw new AdminError(404, 'Published asset not found');
+      const bytes = await options.assetStorage.read(asset, asset.data);
       return reply
         .header('Cache-Control', 'public,max-age=31536000,immutable')
-        .header('X-Content-Type-Options', 'nosniff')
         .type(asset.mime)
-        .send(Buffer.from(asset.data));
-    } catch {
-      return reply.code(503).send({ error: 'Asset unavailable' });
+        .send(bytes);
+    } catch (error) {
+      const status =
+        error instanceof AdminError || error instanceof AssetStorageError
+          ? error.statusCode
+          : 503;
+      const message =
+        error instanceof AssetStorageError || status === 404
+          ? (error as Error).message
+          : 'Asset unavailable';
+      return reply
+        .header('Cache-Control', 'no-store')
+        .code(status)
+        .send({ error: message });
     }
   });
   return { snapshot };

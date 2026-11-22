@@ -4,20 +4,23 @@ import { PrismaClient } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { adminRoutes, type AdminOptions } from './admin.js';
+import { createAssetStorage } from './asset-storage.js';
 import { AdminError } from './admin-store.js';
 import { builtinCatalogue, newGame } from '@mars/simulation';
 export function createApp(
   database?: PrismaClient,
   options: {
     databaseUrl?: string;
+    env?: NodeJS.ProcessEnv;
     logger?: FastifyServerOptions['logger'];
     admin?: Partial<Omit<AdminOptions, 'db' | 'configured'>>;
   } = {},
 ) {
   let client = database;
+  const env = options.env ?? process.env;
   const databaseUrl = Object.hasOwn(options, 'databaseUrl')
     ? options.databaseUrl
-    : process.env.DATABASE_URL;
+    : env.DATABASE_URL;
   const configured = !!database || !!databaseUrl;
   const db = () => (client ??= databaseClient(databaseUrl!));
   const app = Fastify({ logger: options.logger ?? true, bodyLimit: 16384 });
@@ -77,9 +80,10 @@ export function createApp(
     const { snapshot } = await adminRoutes(routes, {
       db,
       configured,
-      production: process.env.NODE_ENV === 'production',
-      origin: process.env.ADMIN_ORIGIN,
-      uploadLimit: Number(process.env.ADMIN_UPLOAD_LIMIT_BYTES) || undefined,
+      assetStorage: createAssetStorage(env),
+      production: env.NODE_ENV === 'production',
+      origin: env.ADMIN_ORIGIN,
+      uploadLimit: Number(env.ADMIN_UPLOAD_LIMIT_BYTES) || undefined,
       ...options.admin,
     });
     routes.post('/api/new-game', async (request, reply) => {

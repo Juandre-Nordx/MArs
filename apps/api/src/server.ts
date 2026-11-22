@@ -20,7 +20,7 @@ export async function startServer(env: NodeJS.ProcessEnv = process.env) {
   const hasWeb = existsSync(resolve(webRoot, 'index.html'));
   if (env.NODE_ENV === 'production' && !hasWeb)
     throw new StartupError('WEB_ASSETS_MISSING');
-  const app = createApp(undefined, { databaseUrl: env.DATABASE_URL });
+  const app = createApp(undefined, { env });
   try {
     app.log.info(
       {
@@ -36,7 +36,7 @@ export async function startServer(env: NodeJS.ProcessEnv = process.env) {
       await app.register(fastifyStatic, { root: webRoot });
       app.get('/admin', (_request, reply) => reply.sendFile('index.html'));
     }
-    await app.listen({ port: Number(rawPort), host: '0.0.0.0' });
+    await app.listen({ port: Number(rawPort), host: env.HOST ?? '0.0.0.0' });
     app.log.info(
       { event: 'startup_complete', healthcheck: '/api/health' },
       'MARS is accepting requests',

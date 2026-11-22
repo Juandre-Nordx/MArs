@@ -1,0 +1,11 @@
+:{$PORT:8080} {
+	handle /api/* {
+		reverse_proxy {$MARS_API_UPSTREAM}
+	}
+
+	handle {
+		root * {$MARS_WEB_ROOT:/srv}
+		try_files {path} /index.html
+		file_server
+	}
+}

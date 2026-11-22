@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, readdir, readFile, rm, unlink } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import sharp from 'sharp';
 import { createApp } from '../../apps/api/src/app.js';
 import { databaseClient } from '../../apps/api/src/database.js';
@@ -430,6 +432,174 @@ describe.skipIf(!url)('admin against isolated PostgreSQL', () => {
         })
       ).json().colony.catalogue,
     ).toEqual(snapshot);
+  });
+  it('persists volume artwork across API replacement, including immutable history and legacy bytes', async () => {
+    const volume = await mkdtemp(
+      join(process.env.MARS_TEST_ASSET_ROOT ?? resolve('..'), 'mars-assets-'),
+    );
+    const dir = join(volume, 'catalogue-assets');
+    const img = await sharp({
+      create: {
+        width: 1024,
+        height: 768,
+        channels: 4,
+        background: { r: 20, g: 100, b: 160, alpha: 0.5 },
+      },
+    })
+      .webp()
+      .toBuffer();
+    const payload = { slot: 'resource-icon', data: img.toString('base64') };
+    const auth = await login();
+    const legacy = await post('assets', payload, auth);
+    expect(legacy.statusCode, legacy.body).toBe(200);
+    const legacyId = legacy.json().id;
+    const env = { ASSET_STORAGE_DRIVER: 'volume', ASSET_STORAGE_PATH: volume };
+    function volumeApp(path = volume) {
+      return createApp(undefined, {
+        databaseUrl: url,
+        logger: false,
+        env: { ...env, ASSET_STORAGE_PATH: path },
+        admin: { origin, now: () => time },
+      });
+    }
+    let server = volumeApp();
+    const send = (path: string, payload: unknown) =>
+      server.inject({
+        method: 'POST',
+        url: `/api/admin/${path}`,
+        headers: auth,
+        payload,
+      });
+    const publicArt = (id: string) =>
+      server.inject(`/api/catalogue-assets/${id}`);
+    async function publishIcon(id: string) {
+      const c = (
+        await server.inject({ url: '/api/admin/catalogue', headers: auth })
+      ).json();
+      const saved = await send('entries', {
+        revision: c.draft.revision,
+        kind: 'resources',
+        create: false,
+        entry: { ...c.draft.document.resources[0], icon: id },
+      });
+      expect(saved.statusCode, saved.body).toBe(200);
+      const published = await send('publish', {
+        revision: saved.json().revision,
+      });
+      expect(published.statusCode, published.body).toBe(200);
+      return published.json().id;
+    }
+    try {
+      await publishIcon(legacyId);
+      expect((await publicArt(legacyId)).statusCode).toBe(200);
+      await server.close();
+      server = volumeApp(join(volume, 'missing'));
+      expect((await send('assets', payload)).json().error).toMatch(
+        /volume unavailable/,
+      );
+      expect((await server.inject('/api/health')).statusCode).toBe(200);
+      expect((await server.inject('/api/ready')).statusCode).toBe(200);
+      expect((await publicArt(legacyId)).statusCode).toBe(200);
+      await server.close();
+      server = volumeApp();
+
+      await db.$executeRawUnsafe(
+        `CREATE FUNCTION test_reject_asset_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture rejection'; END; $$`,
+      );
+      try {
+        await db.$executeRawUnsafe(
+          `CREATE TRIGGER test_reject_asset_audit BEFORE INSERT ON "AdminAudit" FOR EACH ROW WHEN (NEW.action = 'asset.upload') EXECUTE FUNCTION test_reject_asset_audit()`,
+        );
+        const failed = await send('assets', payload);
+        expect(failed.statusCode).toBe(503);
+        expect(failed.json().error).toMatch(/database record/);
+        const [file] = await readdir(dir);
+        expect(file).toMatch(/\.png$/);
+        const orphan = file!.slice(0, -4);
+        expect(
+          await db.catalogueAsset.findUnique({ where: { id: orphan } }),
+        ).toBeNull();
+        expect((await publicArt(orphan)).statusCode).toBe(404);
+      } finally {
+        await db.$executeRawUnsafe(
+          'DROP FUNCTION test_reject_asset_audit() CASCADE',
+        );
+      }
+      const huge = await sharp({
+        create: { width: 2049, height: 2049, channels: 3, background: 'red' },
+      })
+        .png()
+        .toBuffer();
+      expect(
+        (await send('assets', { ...payload, data: huge.toString('base64') }))
+          .statusCode,
+      ).toBe(422);
+      const uploaded = await send('assets', payload);
+      expect(uploaded.statusCode, uploaded.body).toBe(200);
+      expect(uploaded.json()).toMatchObject({ width: 512, height: 384 });
+      const id: string = uploaded.json().id;
+      const asset = await db.catalogueAsset.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(asset).toMatchObject({
+        storageBackend: 'volume',
+        storageKey: `${id}.png`,
+        data: null,
+      });
+      const bytes = await readFile(join(dir, asset.storageKey!));
+      expect((await sharp(bytes).metadata()).hasAlpha).toBe(true);
+      expect((await publicArt(id)).statusCode).toBe(404);
+      expect((await server.inject(`/api/admin/assets/${id}`)).statusCode).toBe(
+        401,
+      );
+      const preview = await server.inject({
+        url: `/api/admin/assets/${id}`,
+        headers: auth,
+      });
+      expect(preview.rawPayload).toEqual(bytes);
+      expect(preview.headers['cache-control']).toBe('no-store');
+      const version = await publishIcon(id);
+
+      await server.close();
+      server = volumeApp();
+      const restored = await publicArt(id);
+      expect(restored.rawPayload).toEqual(bytes);
+      expect(restored.headers).toMatchObject({
+        'content-type': 'image/png',
+        'cache-control': 'public,max-age=31536000,immutable',
+        'x-content-type-options': 'nosniff',
+      });
+      expect((await publicArt('%2e%2e%2fetc%2fpasswd')).statusCode).toBe(404);
+
+      const replacement = await send('assets', payload);
+      expect(replacement.json().id).not.toBe(id);
+      await publishIcon(replacement.json().id);
+      expect((await publicArt(id)).rawPayload).toEqual(bytes);
+      expect((await publicArt(legacyId)).statusCode).toBe(200);
+      const snapshot = (
+        await server.inject(`/api/catalogues/published-${version}`)
+      ).json();
+      expect(snapshot.document.resources[0].icon).toBe(id);
+      await unlink(join(dir, asset.storageKey!));
+      expect((await publicArt(id)).json().error).toMatch(/file missing/);
+    } finally {
+      await server.close();
+      // Restore a legacy reference for the remaining shared-database cases.
+      const saved = await catalogue(auth);
+      const updated = await post(
+        'entries',
+        {
+          revision: saved.draft.revision,
+          kind: 'resources',
+          create: false,
+          entry: { ...saved.draft.document.resources[0], icon: legacyId },
+        },
+        auth,
+      );
+      if (updated.statusCode === 200)
+        await post('publish', { revision: updated.json().revision }, auth);
+      await rm(volume, { recursive: true, force: true });
+    }
   });
   it('keeps invalid drafts private and rolls publication back without partial state', async () => {
     const auth = await login();
