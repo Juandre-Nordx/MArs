@@ -46,6 +46,7 @@ import { World } from './World';
 import { WorldNavigator } from './WorldNavigator';
 import './style.css';
 import { CatalogueArt } from './catalogue-art';
+import { ResourceStat, StatusBadge } from './game-ui';
 const AdminApp = lazy(() => import('./AdminApp'));
 const SAVE_KEY = 'mars-first-colony-save';
 const categories: Category[] = [
@@ -60,6 +61,7 @@ function App() {
   const clock = useRef<ClockState | null>(null);
   const last = useRef(performance.now());
   const inspectorRef = useRef<HTMLElement>(null);
+  const catalogueOptionsRef = useRef<HTMLDetailsElement>(null);
   const [colony, setColony] = useState<ColonyState | null>(null);
   const buildingDefinitions = runtimeCatalogue(colony ?? undefined).buildings;
   const [catalogues, setCatalogues] = useState<{ id: string }[]>([]);
@@ -86,6 +88,7 @@ function App() {
     null,
   );
   const selectResident = useCallback((id: string) => {
+    setInspectorOpen(true);
     setSelectedResidentId(id);
     setTile(null);
   }, []);
@@ -113,6 +116,7 @@ function App() {
     setDraft([]);
   }, []);
   const [message, setMessage] = useState('');
+  const [inspectorOpen, setInspectorOpen] = useState(true);
   const [storageOpen, setStorageOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const publish = useCallback((state: ColonyState, reset = false) => {
@@ -187,6 +191,7 @@ function App() {
     )
       return;
     setBusy(true);
+    if (catalogueOptionsRef.current) catalogueOptionsRef.current.open = false;
     setMessage('');
     try {
       const response = await fetch('/api/new-game', {
@@ -205,8 +210,7 @@ function App() {
       const state = colonySchema.parse((body as { colony?: unknown }).colony);
       publish(state, true);
       setMessage(
-        (body as { warning?: string }).warning ??
-          `Colony uses catalogue ${state.catalogue.id}`,
+        (body as { warning?: string }).warning ?? 'Colony initialized',
       );
       setFocus(null);
       setMission((value) => value + 1);
@@ -228,7 +232,7 @@ function App() {
     if (!clock.current) return;
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(clock.current.colony));
-      setMessage('Saved in this browser. Cloud saves are not available.');
+      setMessage('Saved in this browser.');
     } catch {
       setMessage('Browser storage unavailable or full');
     }
@@ -300,11 +304,10 @@ function App() {
     <main className="game-shell">
       <header className="topbar">
         <div className="brand">
-          <span className="eyebrow">MARS / MISSION CONTROL</span>
-          <h1>MARS: FIRST COLONY</h1>
+          <h1>Mars: First Colony</h1>
           <h2>{colony?.name ?? 'Awaiting landing'}</h2>
         </div>
-        <div className="hud">
+        <div className="mission-summary" aria-label="Mission status">
           <div className="stat">
             <span>Sol</span>
             <strong>
@@ -324,41 +327,13 @@ function App() {
               walking
             </small>
           </div>
-          {(['oxygen', 'water', 'food', 'energy'] as const).map((key) => (
-            <div
-              className={`stat ${colony && cap && colony.inventory[key] <= cap[key] * 0.2 ? 'low' : ''}`}
-              key={key}
-            >
-              <span>{resourceDefinitions[key]!.label}</span>
-              <strong data-testid={`resource-${key}`}>
-                {colony ? format(colony.inventory[key]) : '—'}
-              </strong>
-              <small>
-                {cap
-                  ? `${cap[key]} ${resourceDefinitions[key]!.unit} capacity`
-                  : resourceDefinitions[key]!.unit}
-              </small>
-            </div>
-          ))}
         </div>
         <div className="session-controls">
-          <label>
-            New colony catalogue
-            <select
-              aria-label="New colony catalogue"
-              value={selectedCatalogue}
-              onChange={(e) => setSelectedCatalogue(e.target.value)}
-            >
-              <option value="current">Current publication</option>
-              <option value="builtin-v0331">Original game</option>
-              {catalogues.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="session-buttons">
+          <div
+            className="session-buttons"
+            role="group"
+            aria-label="Colony controls"
+          >
             <button
               disabled={busy}
               className="primary"
@@ -369,19 +344,77 @@ function App() {
             <button disabled={!colony} onClick={save}>
               Save
             </button>
+            <button onClick={load}>Load</button>
             <button
               disabled={!colony}
-              aria-pressed={storageOpen}
+              aria-pressed={inspectorOpen && storageOpen}
               onClick={() => {
-                setStorageOpen(!storageOpen);
+                setStorageOpen(!(inspectorOpen && storageOpen));
+                setInspectorOpen(true);
                 inspectorRef.current?.scrollTo({ top: 0 });
               }}
             >
               Storage overview
             </button>
-            <button onClick={load}>Load</button>
           </div>
-          <div className="time-controls" aria-label="Simulation speed">
+          <details className="catalogue-options" ref={catalogueOptionsRef}>
+            <summary>Catalogue</summary>
+            <label>
+              New colony catalogue
+              <select
+                value={selectedCatalogue}
+                onChange={(e) => setSelectedCatalogue(e.target.value)}
+              >
+                <option value="current">Current publication</option>
+                <option value="builtin-v0331">Original game</option>
+                {catalogues.map((c) => (
+                  <option key={c.id} value={c.id} title={c.id}>
+                    Publication {c.id.replace(/^published-/, '')}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </details>
+        </div>
+        <div className="hud" aria-label="Colony resources">
+          {(['oxygen', 'water', 'food', 'energy'] as const).map((key) => {
+            const resource = resourceDefinitions[key]!;
+            return (
+              <ResourceStat
+                key={key}
+                label={resource.label}
+                icon={resource.icon}
+                value={colony ? format(colony.inventory[key]) : '—'}
+                capacity={
+                  cap ? `/ ${cap[key]} ${resource.unit}` : resource.unit
+                }
+                low={
+                  !!(colony && cap && colony.inventory[key] <= cap[key] * 0.2)
+                }
+                testId={`resource-${key}`}
+              />
+            );
+          })}
+        </div>
+        <div className="simulation-controls">
+          <StatusBadge
+            tone={
+              colony?.speed && colony.phase === 'active' ? 'healthy' : 'neutral'
+            }
+          >
+            {!colony
+              ? 'Standby'
+              : colony.phase === 'landing'
+                ? 'Landing'
+                : colony.speed
+                  ? 'Running'
+                  : 'Paused'}
+          </StatusBadge>
+          <div
+            className="time-controls"
+            role="group"
+            aria-label="Simulation speed"
+          >
             {([0, 1, 2, 4] as const).map((speed) => (
               <button
                 key={speed}
@@ -400,29 +433,37 @@ function App() {
       </header>
       <section className="workspace">
         <div className="viewport">
-          <label className="network-selector">
-            Network display
-            <select
-              aria-label="Network display"
-              value={view}
-              onChange={(event) =>
-                setView(
-                  event.target.value as
-                    | InfrastructureType
-                    | 'normal'
-                    | 'geology',
-                )
-              }
+          <div className="map-tools">
+            <label className="network-selector">
+              Network display
+              <select
+                aria-label="Network display"
+                value={view}
+                onChange={(event) =>
+                  setView(
+                    event.target.value as
+                      | InfrastructureType
+                      | 'normal'
+                      | 'geology',
+                  )
+                }
+              >
+                <option value="normal">Normal view</option>
+                <option value="geology">Geological overlay</option>
+                <option value="water">Water network</option>
+                <option value="oxygen">Oxygen network</option>
+                <option value="power">Electrical network</option>
+                <option value="road">Road network</option>
+              </select>
+            </label>
+            <button
+              aria-expanded={inspectorOpen}
+              aria-controls="colony-inspector"
+              onClick={() => setInspectorOpen(!inspectorOpen)}
             >
-              <option value="normal">Normal view</option>
-              <option value="geology">Geological overlay</option>
-              <option value="water">Water network</option>
-              <option value="oxygen">Oxygen network</option>
-              <option value="power">Electrical network</option>
-              <option value="road">Road network</option>
-            </select>
-            <small>v0.4 · Catalogue {colony?.catalogue.id ?? 'original'}</small>
-          </label>
+              {inspectorOpen ? 'Hide inspector' : 'Show inspector'}
+            </button>
+          </div>
           <World
             colony={colony}
             selectedResidentId={selectedResidentId}
@@ -450,62 +491,181 @@ function App() {
             </span>
             <p>Drag to pan · Scroll to zoom · Click to select</p>
           </div>
-          {colony?.phase === 'landing' && (
-            <div className="landing-panel">
-              <h3>Starship descending</h3>
-              <p>Touchdown deploys 19 starter buildings for 10 colonists.</p>
-              <button className="primary" onClick={touchdown}>
-                Skip landing
-              </button>
-            </div>
+          {colony && building && (
+            <BuildingPopup
+              key={building.id}
+              colony={colony}
+              building={building}
+              onClose={() => setTile(null)}
+              onCommand={(update) => {
+                if (clock.current) publish(update(clock.current.colony));
+              }}
+            />
           )}
-          {infrastructureTool && (
-            <div
-              className={`placement-panel infrastructure-preview ${infrastructurePreview && !infrastructurePreview.valid ? 'invalid' : ''}`}
-              data-testid="route-preview"
-            >
-              <strong>
-                {infrastructureTool.demolish ? 'Demolish' : 'Place'}{' '}
-                {infrastructureDefinitions[infrastructureTool.type].name}
-              </strong>
-              <p>
-                Click or drag a connected route, then confirm. Right click / Esc
-                cancels.
-              </p>
-              <p>
-                {infrastructurePreview?.reason ?? 'Select route on terrain'} ·{' '}
-                {draft.length} tiles
-              </p>
-              <p data-testid="route-cost">
-                Cost: {infrastructurePreview?.cost ?? 0} metal · Refund:{' '}
-                {infrastructurePreview?.refund ?? 0} metal
-              </p>
-              <button
-                disabled={!infrastructurePreview?.valid}
-                onClick={confirmRoute}
+          <div className="map-dock">
+            {colony?.phase === 'landing' && (
+              <div className="landing-panel">
+                <h3>Starship descending</h3>
+                <p>Touchdown deploys 19 starter buildings for 10 colonists.</p>
+                <button className="primary" onClick={touchdown}>
+                  Skip landing
+                </button>
+              </div>
+            )}
+            {infrastructureTool && (
+              <div
+                className={`placement-panel infrastructure-preview ${infrastructurePreview && !infrastructurePreview.valid ? 'invalid' : ''}`}
+                data-testid="route-preview"
               >
-                Confirm route
-              </button>
-              <button onClick={() => setDraft([])}>Clear route</button>
-              <button onClick={cancelPlacement}>Cancel route</button>
-            </div>
-          )}
-          {construction && (
-            <div
-              className={`placement-panel ${preview && !preview.valid ? 'invalid' : ''}`}
-              data-testid="placement-status"
-            >
-              <strong>Place {buildingDefinitions[construction].name}</strong>
-              <p>
-                {preview?.reason ?? 'Move over terrain to preview footprint'}
-              </p>
-              <button onClick={() => setConstruction(null)}>
-                Cancel placement
+                <strong>
+                  {infrastructureTool.demolish ? 'Demolish' : 'Place'}{' '}
+                  {infrastructureDefinitions[infrastructureTool.type].name}
+                </strong>
+                <p>
+                  Click or drag a connected route, then confirm. Right click /
+                  Esc cancels.
+                </p>
+                <p>
+                  {infrastructurePreview?.reason ?? 'Select route on terrain'} ·{' '}
+                  {draft.length} tiles
+                </p>
+                <p data-testid="route-cost">
+                  Cost: {infrastructurePreview?.cost ?? 0} metal · Refund:{' '}
+                  {infrastructurePreview?.refund ?? 0} metal
+                </p>
+                <button
+                  disabled={!infrastructurePreview?.valid}
+                  onClick={confirmRoute}
+                >
+                  Confirm route
+                </button>
+                <button onClick={() => setDraft([])}>Clear route</button>
+                <button onClick={cancelPlacement}>Cancel route</button>
+              </div>
+            )}
+            {construction && (
+              <div
+                className={`placement-panel ${preview && !preview.valid ? 'invalid' : ''}`}
+                data-testid="placement-status"
+              >
+                <strong>Place {buildingDefinitions[construction].name}</strong>
+                <p>
+                  {preview?.reason ?? 'Move over terrain to preview footprint'}
+                </p>
+                <small>
+                  {buildingDefinitions[construction].cost.metal} metal ·{' '}
+                  {buildingDefinitions[construction].cost.credits} credits · Esc
+                  to cancel
+                </small>
+                <button onClick={cancelPlacement}>Cancel placement</button>
+              </div>
+            )}
+            {category === 'Infrastructure' && (
+              <div className="build-menu infrastructure-menu">
+                {infrastructureTypeSchema.options.map((type) => (
+                  <button
+                    key={type}
+                    aria-pressed={infrastructureTool?.type === type}
+                    onClick={() => {
+                      setConstruction(null);
+                      setInfrastructureTool({ type, demolish: false });
+                      setDraft([]);
+                      setView(type);
+                    }}
+                  >
+                    {infrastructureDefinitions[type].name}
+                    <small>
+                      {infrastructureDefinitions[type].metal} metal / tile
+                    </small>
+                  </button>
+                ))}
+                <button
+                  disabled={!infrastructureTool}
+                  aria-pressed={infrastructureTool?.demolish ?? false}
+                  onClick={() => {
+                    setInfrastructureTool((tool) =>
+                      tool ? { ...tool, demolish: !tool.demolish } : null,
+                    );
+                    setDraft([]);
+                  }}
+                >
+                  Demolish tool
+                </button>
+                <span className="build-hint">
+                  Layers can cross on free terrain. Pipes, cables and roads
+                  connect directly beside any building side.
+                </span>
+              </div>
+            )}
+            {category && category !== 'Infrastructure' && (
+              <div className="build-menu">
+                {(Object.keys(buildingDefinitions) as BuildingType[])
+                  .filter(
+                    (type) =>
+                      type !== 'starship' &&
+                      buildingDefinitions[type].category === category,
+                  )
+                  .map((type) => {
+                    const d = buildingDefinitions[type];
+                    const available =
+                      !!colony && buildingAvailable(colony, type);
+                    return (
+                      <button
+                        key={type}
+                        aria-pressed={construction === type}
+                        disabled={!available}
+                        onClick={() => {
+                          setInfrastructureTool(null);
+                          setDraft([]);
+                          setConstruction(type);
+                          setCategory(null);
+                        }}
+                      >
+                        <CatalogueArt
+                          className="build-icon"
+                          width={34}
+                          height={34}
+                          reference={
+                            colony?.catalogue.document.buildings.find(
+                              (b) => b.id === type,
+                            )?.icon ?? 'placeholder:building'
+                          }
+                          kind="building"
+                          alt=""
+                        />
+                        <span className="build-name">{d.name}</span>
+                        <small>
+                          {d.width}×{d.height} · {d.cost.metal} metal ·{' '}
+                          {d.cost.credits} credits
+                          {!available && ' · Unavailable in this catalogue'}
+                        </small>
+                      </button>
+                    );
+                  })}
+                <span className="build-hint">
+                  Metal: {colony?.inventory.metal} · Esc to cancel
+                </span>
+              </div>
+            )}
+          </div>
+          {message && (
+            <div className="toast">
+              <span role="status">{message}</span>
+              <button
+                aria-label="Dismiss message"
+                onClick={() => setMessage('')}
+              >
+                ×
               </button>
             </div>
           )}
         </div>
-        <aside ref={inspectorRef} className="inspector">
+        <aside
+          ref={inspectorRef}
+          id="colony-inspector"
+          className="inspector"
+          hidden={!inspectorOpen}
+        >
           <span className="eyebrow">COLONY INSPECTOR</span>
           {colony && storageOpen && (
             <StorageOverview
@@ -666,17 +826,6 @@ function App() {
             logistics and refining pending
           </p>
         </aside>
-        {colony && building && (
-          <BuildingPopup
-            key={building.id}
-            colony={colony}
-            building={building}
-            onClose={() => setTile(null)}
-            onCommand={(update) => {
-              if (clock.current) publish(update(clock.current.colony));
-            }}
-          />
-        )}
       </section>
       <footer className="construction-toolbar">
         <nav aria-label="Construction categories">
@@ -687,6 +836,7 @@ function App() {
               aria-pressed={category === item}
               onClick={() => {
                 setCategory(category === item ? null : item);
+                setTile(null);
                 setConstruction(null);
                 setInfrastructureTool(null);
                 setDraft([]);
@@ -695,96 +845,16 @@ function App() {
               {item}
             </button>
           ))}
-          <button disabled>Industry · locked</button>
-        </nav>
-        {category === 'Infrastructure' && (
-          <div className="build-menu infrastructure-menu">
-            {infrastructureTypeSchema.options.map((type) => (
-              <button
-                key={type}
-                aria-pressed={infrastructureTool?.type === type}
-                onClick={() => {
-                  setConstruction(null);
-                  setInfrastructureTool({ type, demolish: false });
-                  setDraft([]);
-                  setView(type);
-                }}
-              >
-                {infrastructureDefinitions[type].name}
-                <small>
-                  {infrastructureDefinitions[type].metal} metal / tile
-                </small>
-              </button>
-            ))}
-            <button
-              disabled={!infrastructureTool}
-              aria-pressed={infrastructureTool?.demolish ?? false}
-              onClick={() => {
-                setInfrastructureTool((tool) =>
-                  tool ? { ...tool, demolish: !tool.demolish } : null,
-                );
-                setDraft([]);
-              }}
-            >
-              Demolish tool
-            </button>
-            <span>
-              Layers can cross on free terrain. Pipes, cables and roads connect
-              directly beside any building side.
+          {construction && (
+            <span className="active-tool">
+              Placing {buildingDefinitions[construction].name}
             </span>
-          </div>
-        )}
-        {category && category !== 'Infrastructure' && (
-          <div className="build-menu">
-            {(Object.keys(buildingDefinitions) as BuildingType[])
-              .filter(
-                (type) =>
-                  type !== 'starship' &&
-                  (!colony || buildingAvailable(colony, type)) &&
-                  buildingDefinitions[type].category === category,
-              )
-              .map((type) => {
-                const d = buildingDefinitions[type];
-                return (
-                  <button
-                    key={type}
-                    aria-pressed={construction === type}
-                    onClick={() => {
-                      setInfrastructureTool(null);
-                      setDraft([]);
-                      setConstruction(type);
-                    }}
-                  >
-                    <CatalogueArt
-                      className="catalogue-icon"
-                      reference={
-                        colony?.catalogue.document.buildings.find(
-                          (b) => b.id === type,
-                        )?.icon ?? 'placeholder:building'
-                      }
-                      kind="building"
-                      alt=""
-                    />
-                    {d.name}
-                    <small>
-                      {d.width}×{d.height} · {d.cost.metal} metal ·{' '}
-                      {d.cost.credits} credits
-                    </small>
-                  </button>
-                );
-              })}
-            <span>Metal: {colony?.inventory.metal} · Esc to cancel</span>
-          </div>
-        )}
-      </footer>
-      {message && (
-        <div role="status" className="toast" onClick={() => setMessage('')}>
-          {message}
-          <button aria-label="Dismiss message" onClick={() => setMessage('')}>
-            ×
+          )}
+          <button disabled title="Refining and factories are pending">
+            Industry · locked
           </button>
-        </div>
-      )}
+        </nav>
+      </footer>
     </main>
   );
 }

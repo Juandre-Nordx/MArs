@@ -1,5 +1,6 @@
 import { CatalogueArt } from './catalogue-art';
 import { catalogueResources, catalogueMinerals } from './catalogue-view';
+import { StatusBadge } from './game-ui';
 import { ProductionPanel } from './ProductionPanel';
 import { useEffect, useRef } from 'react';
 import {
@@ -93,95 +94,128 @@ export function BuildingPopup({
           ×
         </button>
       </header>
-      {entry.icon.startsWith('placeholder:') ? (
-        <svg
-          width="100"
-          height="65"
-          viewBox="0 0 100 65"
-          role="img"
-          aria-label={`${definition.name} placeholder artwork`}
-        >
-          <path d="M10 32 50 12 90 32 50 52Z" fill="#252e34" />
-          <path
-            d="M22 25 50 11 78 25 50 39Z"
-            fill={`#${definition.color.toString(16).padStart(6, '0')}`}
+      <div className="building-popup-overview">
+        {entry.icon.startsWith('placeholder:') ? (
+          <svg
+            className="building-art"
+            width="56"
+            height="48"
+            viewBox="0 0 100 65"
+            role="img"
+            aria-label={`${definition.name} placeholder artwork`}
+          >
+            <path d="M10 32 50 12 90 32 50 52Z" fill="#252e34" />
+            <path
+              d="M22 25 50 11 78 25 50 39Z"
+              fill={`#${definition.color.toString(16).padStart(6, '0')}`}
+            />
+            <path d="M22 25V43L50 57V39Z" fill="#586b77" />
+            <path d="M50 39V57L78 43V25Z" fill="#8ba2a7" />
+          </svg>
+        ) : (
+          <CatalogueArt
+            reference={entry.icon}
+            kind="building"
+            className="building-art"
+            width={56}
+            height={48}
+            alt={`${definition.name} artwork`}
           />
-          <path d="M22 25V43L50 57V39Z" fill="#586b77" />
-          <path d="M50 39V57L78 43V25Z" fill="#8ba2a7" />
-        </svg>
-      ) : (
-        <CatalogueArt
-          reference={entry.icon}
-          kind="building"
-          width={100}
-          height={65}
-          alt={`${definition.name} artwork`}
-        />
-      )}
-      <p className="muted">
-        {building.type} · {building.id} · {building.x},{building.y} · Original
-        placeholder art
-      </p>
-      <p>{entry.description}</p>
-      <p>{purposes[building.type]}</p>
-      <dl>
-        <dt>Condition</dt>
-        <dd>
-          {building.health}% · {building.enabled ? 'Enabled' : 'Disabled'}
-        </dd>
-        <dt>Workers assigned</dt>
-        <dd>
-          {building.workers} / {definition.workers}
-        </dd>
-        <dt>Production status</dt>
-        <dd data-testid="building-status">
-          {connectionLabels[building.status] ?? building.status}
-        </dd>
-        <dt>Base power demand</dt>
-        <dd>{definition.power} kWh/tick</dd>
-        <dt>Connected grid</dt>
-        <dd>
-          {power
-            ? `${power.supply.toFixed(2)} supply / ${power.demand.toFixed(2)} demand / ${power.allocated.toFixed(2)} allocated (whole grid)`
-            : 'No electrical connection'}
-        </dd>
-      </dl>
-      <h4>Utility connections</h4>
-      {(['water', 'oxygen', 'power', 'road'] as const).map((type) => {
-        const contacts = connectionTiles(building, type);
-        if (!contacts.length) return null;
-        const connected = contacts.filter((t) =>
-          colony.infrastructure.some(
-            (s) => s.type === type && s.x === t.x && s.y === t.y && isUsable(s),
-          ),
-        );
-        return (
-          <p key={type}>
-            {type}: {connected.length} connected footprint contact(s)
+        )}
+        <div>
+          <small>
+            Sector {building.x}, {building.y}
+          </small>
+          <p>{entry.description || purposes[building.type]}</p>
+        </div>
+      </div>
+      <div className="building-actions">
+        <span data-testid="building-status">
+          <StatusBadge
+            tone={
+              !building.enabled || !building.health
+                ? 'critical'
+                : building.status === 'running' || building.status === 'ready'
+                  ? 'healthy'
+                  : 'warning'
+            }
+          >
+            {connectionLabels[building.status] ?? building.status}
+          </StatusBadge>
+        </span>
+        <button
+          onClick={() => onCommand((s) => toggleBuilding(s, building.id))}
+        >
+          {building.enabled ? 'Disable building' : 'Enable building'}
+        </button>
+      </div>
+      <ProductionPanel
+        colony={colony}
+        building={building}
+        onCommand={onCommand}
+      />
+      <details open>
+        <summary>Condition, workers and power</summary>
+        <dl>
+          <dt>Condition</dt>
+          <dd>
+            {building.health}% · {building.enabled ? 'Enabled' : 'Disabled'}
+          </dd>
+          <dt>Workers assigned</dt>
+          <dd>
+            {building.workers} / {definition.workers}
+          </dd>
+          <dt>Base power demand</dt>
+          <dd>{definition.power} kWh/tick</dd>
+          <dt>Connected grid</dt>
+          <dd>
+            {power
+              ? `${power.supply.toFixed(2)} supply / ${power.demand.toFixed(2)} demand / ${power.allocated.toFixed(2)} allocated (whole grid)`
+              : 'No electrical connection'}
+          </dd>
+        </dl>
+      </details>
+      <details>
+        <summary>Utility connections</summary>
+        {(['water', 'oxygen', 'power', 'road'] as const).map((type) => {
+          const contacts = connectionTiles(building, type);
+          if (!contacts.length) return null;
+          const connected = contacts.filter((t) =>
+            colony.infrastructure.some(
+              (s) =>
+                s.type === type && s.x === t.x && s.y === t.y && isUsable(s),
+            ),
+          );
+          return (
+            <p key={type}>
+              {type}: {connected.length} connected footprint contact(s)
+            </p>
+          );
+        })}
+      </details>
+      <details>
+        <summary>Local utility storage</summary>
+        {(['water', 'oxygen', 'energy'] as const).map((key) => (
+          <p key={key}>
+            {resourceDefinitions[key].label}: {building.stores[key].toFixed(2)}{' '}
+            / {definition.capacity[key] ?? 0} {resourceDefinitions[key].unit}
           </p>
-        );
-      })}
-      <h4>Local utility storage</h4>
-      {(['water', 'oxygen', 'energy'] as const).map((key) => (
-        <p key={key}>
-          {resourceDefinitions[key].label}: {building.stores[key].toFixed(2)} /{' '}
-          {definition.capacity[key] ?? 0} {resourceDefinitions[key].unit}
-        </p>
-      ))}
-      {mine && deposit && isMine(building.type) && (
-        <section aria-label="Mine output">
-          <h4>Local raw mineral buffer</h4>
-          <p>
-            {mineralDefinitions[deposit.resource].name}:{' '}
-            {mine.quantity.toFixed(2)} /{' '}
-            {extractionDefinitions[building.type].capacity} kg
-          </p>
-          <p>
-            Cargo logistics and refining are pending. This buffer does not add
-            usable metal or water to shared inventory.
-          </p>
-        </section>
-      )}
+        ))}
+        {mine && deposit && isMine(building.type) && (
+          <section aria-label="Mine output">
+            <h4>Local raw mineral buffer</h4>
+            <p>
+              {mineralDefinitions[deposit.resource].name}:{' '}
+              {mine.quantity.toFixed(2)} /{' '}
+              {extractionDefinitions[building.type].capacity} kg
+            </p>
+            <p>
+              Cargo logistics and refining are pending. This buffer does not add
+              usable metal or water to shared inventory.
+            </p>
+          </section>
+        )}
+      </details>
       <details>
         <summary>Shared colony inventory (not local ownership)</summary>
         {resourceKeys
@@ -205,28 +239,23 @@ export function BuildingPopup({
           ))}
         </details>
       )}
-      <h4>Required continuous inputs / tick</h4>
-      <p>
-        {Object.entries(definition.inputs)
-          .map(([key, value]) => `${key}: ${value}`)
-          .join(' · ') || 'No material inputs'}
-      </p>
-      <h4>Continuous production per tick</h4>
-      <p>
-        {definition.generation
-          ? `${definition.generation} kWh in daylight`
-          : Object.entries(definition.outputs)
-              .map(([key, value]) => `${key}: ${value}`)
-              .join(' · ') || 'No continuous output'}
-      </p>
-      <ProductionPanel
-        colony={colony}
-        building={building}
-        onCommand={onCommand}
-      />
-      <button onClick={() => onCommand((s) => toggleBuilding(s, building.id))}>
-        {building.enabled ? 'Disable building' : 'Enable building'}
-      </button>
+      <details>
+        <summary>Continuous production</summary>
+        <h4>Required inputs / tick</h4>
+        <p>
+          {Object.entries(definition.inputs)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join(' · ') || 'No material inputs'}
+        </p>
+        <h4>Continuous production per tick</h4>
+        <p>
+          {definition.generation
+            ? `${definition.generation} kWh in daylight`
+            : Object.entries(definition.outputs)
+                .map(([key, value]) => `${key}: ${value}`)
+                .join(' · ') || 'No continuous output'}
+        </p>
+      </details>
     </section>
   );
 }

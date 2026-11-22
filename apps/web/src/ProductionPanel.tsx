@@ -77,22 +77,26 @@ export function ProductionPanel({
         Reserve: {cost(product.inputs)} · {product.duration} assembly ticks · +
         {product.electricity} kWh per assembly tick
       </p>
-      <p>
-        Output: {product.output.quantity} {product.output.kind} drone · no
-        technology prerequisites · {product.workers} assembly workers required.
-        Deployment follows assembly on the next powered tick, when a footprint
-        entry is free.
-      </p>
+      <details>
+        <summary>Assembly and refund rules</summary>
+        <p>
+          Output: {product.output.quantity} {product.output.kind} drone · no
+          technology prerequisites · {product.workers} assembly workers
+          required. Deployment follows assembly on the next powered tick, when a
+          footprint entry is free.
+        </p>
+        <p>
+          Cancel returns the reserved materials in full. Electricity already
+          consumed is not refunded. If refund storage is full, the order and
+          reservation stay in the queue.
+        </p>
+      </details>
       <p data-testid="fleet-capacity">
         Fleet: {fleet} deployed + {orders.length} reserved /{' '}
         {droneFleetLimits.station}. Queue: {orders.length} /{' '}
         {productionLimits.queue}.
       </p>
-      <p>
-        Available shared metal: {colony.inventory.metal.toFixed(2)}.
-        Reservations are already deducted; raw mine ore cannot pay these
-        recipes.
-      </p>
+      <p>Shared metal available: {colony.inventory.metal.toFixed(2)}</p>
       <button
         onClick={() => command((s) => queueProduct(s, building.id, selected))}
       >
@@ -147,12 +151,6 @@ export function ProductionPanel({
           })}
         </ol>
       )}
-      <p>
-        Cancel returns the reserved materials in full, even after partial
-        assembly. Electricity already consumed is not refunded. If refund
-        storage is full, cancellation is rejected and the reservation stays
-        saved.
-      </p>
     </section>
   );
 }
