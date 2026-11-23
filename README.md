@@ -8,6 +8,10 @@ New central colonies group ten habitats into two spaced rows with separate utili
 
 V0.4.1 compacts the mission HUD, restores properly sized resource artwork and gives the map more space. The inspector can be hidden, and building details and production controls scroll within the map. See the [release notes](docs/V0.4.1.md).
 
+## 3D colony preview
+
+Choose **3D preview** under **Map view** to play the same colony on seeded 3D terrain. The preview supports building and utility placement, selection, inspectors and the existing browser saves. **Graphics → Low** reduces draw distance and disables dynamic shadows and surface rocks. The map starts in **Isometric**. [Migration audit and controls](docs/3D-MIGRATION.md)
+
 ## Catalogue administration
 
 V0.4 adds `/admin`: protected administrator sessions, resource/building/recipe editors, original isometric placeholder art, durable image uploads, validated drafts, atomic immutable publication and audit history. New colonies select a published catalogue; schema-8 browser saves embed their catalogue so future edits never silently change them. Unsupported industry remains planned. Existing colony gameplay and the drone fixes below are preserved.

@@ -42,12 +42,14 @@ import {
 import { NetworkInspector } from './NetworkInspector';
 import { ResidentsPanel } from './ResidentsPanel';
 import { ColonistInspector } from './ColonistInspector';
-import { World } from './World';
+import { World, type WorldProps } from './World';
+import { placement3D } from './world3d/terrain';
 import { WorldNavigator } from './WorldNavigator';
 import './style.css';
 import { CatalogueArt } from './catalogue-art';
 import { ResourceStat, StatusBadge } from './game-ui';
 const AdminApp = lazy(() => import('./AdminApp'));
+const World3D = lazy(() => import('./world3d/World3D'));
 const SAVE_KEY = 'mars-first-colony-save';
 const categories: Category[] = [
   'Housing',
@@ -119,6 +121,13 @@ function App() {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [storageOpen, setStorageOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [threeD, setThreeD] = useState(false);
+  const [lowGraphics, setLowGraphics] = useState(false);
+  const fallback = useCallback(() => {
+    setThreeD(false);
+    setMessage('3D needs WebGL 2. The isometric map is active.');
+  }, []);
+  const validatePlacement = threeD ? placement3D : placement;
   const publish = useCallback((state: ColonyState, reset = false) => {
     clock.current = {
       colony: state,
@@ -133,6 +142,10 @@ function App() {
       const type = constructionRef.current;
       if (state && type) {
         try {
+          if (threeD) {
+            const check = placement3D(state, type, value);
+            if (!check.valid) throw new Error(check.reason);
+          }
           publish(construct(state, type, value));
           setConstruction(null);
           setMessage('Construction complete — costs deducted');
@@ -145,7 +158,7 @@ function App() {
       setSelectedResidentId(null);
       setTile(value);
     },
-    [publish],
+    [publish, threeD],
   );
   const touchdown = useCallback(() => {
     const state = clock.current?.colony;
@@ -264,7 +277,7 @@ function App() {
   const warnings = colony ? alerts(colony) : [];
   const preview =
     colony && construction && hover
-      ? placement(colony, construction, hover)
+      ? validatePlacement(colony, construction, hover)
       : null;
   const infrastructurePreview =
     colony && infrastructureTool && draft.length
@@ -300,6 +313,26 @@ function App() {
       );
     }
   }
+  const worldProps: WorldProps = {
+    colony,
+    selectedResidentId,
+    onResidentSelect: selectResident,
+    view,
+    infrastructureTool,
+    draft,
+    routeValid: infrastructurePreview?.valid ?? false,
+    buildingPreviewValid: preview?.valid ?? true,
+    onRoute: setDraft,
+    onCancel: cancelPlacement,
+    mission,
+    focus,
+    selected: tile,
+    hovered: hover,
+    construction,
+    onSelect: select,
+    onHover: setHover,
+    onTouchdown: touchdown,
+  };
   return (
     <main className="game-shell">
       <header className="topbar">
@@ -464,32 +497,66 @@ function App() {
               {inspectorOpen ? 'Hide inspector' : 'Show inspector'}
             </button>
           </div>
-          <World
-            colony={colony}
-            selectedResidentId={selectedResidentId}
-            onResidentSelect={selectResident}
-            view={view}
-            infrastructureTool={infrastructureTool}
-            draft={draft}
-            routeValid={infrastructurePreview?.valid ?? false}
-            buildingPreviewValid={preview?.valid ?? true}
-            onRoute={setDraft}
-            onCancel={cancelPlacement}
-            mission={mission}
-            focus={focus}
-            selected={tile}
-            construction={construction}
-            onSelect={select}
-            onHover={setHover}
-            onTouchdown={touchdown}
-          />
+          {threeD ? (
+            <Suspense
+              fallback={
+                <p className="map-loading" role="status">
+                  Loading 3D terrain…
+                </p>
+              }
+            >
+              <World3D
+                {...worldProps}
+                low={lowGraphics}
+                onFallback={fallback}
+              />
+            </Suspense>
+          ) : (
+            <World {...worldProps} />
+          )}
+          <div className="map-renderer-controls">
+            <label>
+              Map view
+              <select
+                aria-label="Map view"
+                value={threeD ? '3d' : '2d'}
+                onChange={(event) => {
+                  cancelPlacement();
+                  setHover(null);
+                  setThreeD(event.target.value === '3d');
+                }}
+              >
+                <option value="2d">Isometric</option>
+                <option value="3d">3D preview</option>
+              </select>
+            </label>
+            {threeD && (
+              <label>
+                Graphics
+                <select
+                  aria-label="Graphics"
+                  value={lowGraphics ? 'low' : 'balanced'}
+                  onChange={(event) =>
+                    setLowGraphics(event.target.value === 'low')
+                  }
+                >
+                  <option value="balanced">Balanced</option>
+                  <option value="low">Low</option>
+                </select>
+              </label>
+            )}
+          </div>
           <div className="map-caption">
             <span className="eyebrow">
               {colony?.phase === 'landing'
                 ? 'DESCENT / LANDING ZONE SECURED'
                 : 'ARCADIA PLANITIA / SURFACE VIEW'}
             </span>
-            <p>Drag to pan · Scroll to zoom · Click to select</p>
+            <p>
+              {threeD
+                ? 'Drag or WASD to pan · Right drag to rotate and tilt · Scroll to zoom'
+                : 'Drag to pan · Scroll to zoom · Click to select'}
+            </p>
           </div>
           {colony && building && (
             <BuildingPopup
