@@ -1,3 +1,4 @@
+import { buildingYawSchema, type BuildingYaw } from './building-model.js';
 import {
   runtimeCatalogue,
   builtinCatalogue,
@@ -82,6 +83,7 @@ export const buildingSchema = z
     x: integer,
     y: integer,
     health: z.number().min(0).max(100),
+    modelYaw: buildingYawSchema.optional(),
     enabled: z.boolean(),
     workers: integer,
     priority: integer.max(100),
@@ -626,6 +628,7 @@ export function construct(
   state: ColonyState,
   type: BuildingType,
   tile: Tile,
+  modelYaw: BuildingYaw = 0,
 ): ColonyState {
   const buildingDefinitions = runtimeCatalogue(state).buildings;
   const check = placement(state, type, tile);
@@ -633,6 +636,8 @@ export function construct(
   let id = state.nextBuildingId;
   while (state.buildings.some((b) => b.id === `built-${id}`)) id++;
   const definition = buildingDefinitions[type];
+  const building = makeBuilding(`built-${id}`, type, tile, state);
+  if (modelYaw) building.modelYaw = modelYaw;
   return colonySchema.parse(
     registerIndustryBuilding(
       refreshNetworks({
@@ -644,7 +649,7 @@ export function construct(
         credits: state.credits - definition.cost.credits,
         nextBuildingId: id + 1,
         buildings: assignWorkers(
-          [...state.buildings, makeBuilding(`built-${id}`, type, tile, state)],
+          [...state.buildings, building],
           state.population,
           state,
         ),

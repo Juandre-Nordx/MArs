@@ -33,16 +33,18 @@ test('512 world navigation keeps fog hidden and returns to the colony', async ({
   await expect(page.getByTestId('terrain-region')).toContainText(
     'Unexplored terrain',
   );
-  const world = page.getByLabel('Isometric Mars terrain');
+  const world = page.getByLabel('Interactive 3D colony map');
   await expect
-    .poll(async () => Number(await world.getAttribute('data-terrain-tiles')))
-    .toBe(0);
-  await expect
-    .poll(async () => Number(await world.getAttribute('data-building-sprites')))
+    .poll(async () => Number(await world.getAttribute('data-explored-tiles')))
     .toBe(0);
   await expect
     .poll(async () =>
-      Number(await world.getAttribute('data-infrastructure-sprites')),
+      Number(await world.getAttribute('data-visible-buildings')),
+    )
+    .toBe(0);
+  await expect
+    .poll(async () =>
+      Number(await world.getAttribute('data-infrastructure-links')),
     )
     .toBe(0);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -55,7 +57,7 @@ test('512 world navigation keeps fog hidden and returns to the colony', async ({
     .getByRole('button', { name: 'Return to colony', exact: true })
     .click();
   await expect
-    .poll(async () => Number(await world.getAttribute('data-terrain-tiles')))
+    .poll(async () => Number(await world.getAttribute('data-explored-tiles')))
     .toBeGreaterThan(0);
   expect(errors).toEqual([]);
 });
@@ -79,12 +81,13 @@ test('fully explored 512 world renders bounded chunks at far coordinates and pre
   await page.getByRole('button', { name: 'Load', exact: true }).click();
   await navigate(page, 500, 500);
   await expect(page.getByTestId('terrain-region')).toContainText('Region:');
-  const world = page.getByLabel('Isometric Mars terrain');
+  const world = page.getByLabel('Interactive 3D colony map');
+  await expect(world).toHaveAttribute('data-camera-target', /^500,/);
   await world.hover();
   await page.mouse.wheel(0, 4000);
   await page.waitForTimeout(250);
   const chunks = Number(await world.getAttribute('data-terrain-chunks')),
-    tiles = Number(await world.getAttribute('data-terrain-tiles'));
+    tiles = Number(await world.getAttribute('data-explored-tiles'));
   expect(chunks).toBeGreaterThan(0);
   expect(chunks).toBeLessThanOrEqual(64);
   expect(tiles).toBeLessThanOrEqual(16384);

@@ -12,7 +12,6 @@
     "@mars/simulation": "0.4.1",
     "@react-three/drei": "10.0.8",
     "@react-three/fiber": "9.1.2",
-    "phaser": "~3.88.2",
     "react": "~19.0.0",
     "react-dom": "~19.0.0",
     "three": "0.175.0"

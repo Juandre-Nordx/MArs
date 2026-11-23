@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   CHUNK_SIZE,
   chunkKey,
-  chunkOf,
   generateChunk,
   generateDeposits,
   hash,
@@ -21,8 +20,7 @@ import {
   step,
   type ColonyState,
 } from '../../packages/simulation/src/index.js';
-import { visibleChunks } from '../../apps/web/src/viewport.js';
-import { tileToWorld } from '../../apps/web/src/iso.js';
+import { terrainWindow } from '../../apps/web/src/world3d/terrain.js';
 describe('512-tile world foundation', () => {
   it('generates repeatable chunks independent of generation order and covers all four regions', () => {
     const a = generateChunk(73, 31, 31);
@@ -185,28 +183,32 @@ describe('512-tile world foundation', () => {
       }).success,
     ).toBe(false);
   });
-  it('culls chunk work to a bounded viewport at minimum zoom across the world', () => {
-    for (const center of [
-      { x: 9, y: 9 },
+  it('limits loaded terrain to bounded world chunks at any camera target', () => {
+    for (const { x, y } of [
+      { x: 0, y: 0 },
       { x: 256, y: 256 },
       { x: 511, y: 511 },
     ]) {
-      const p = tileToWorld(center.x, center.y),
-        chunks = visibleChunks({
-          x: p.x - 1366 / 0.4 / 2,
-          y: p.y - 768 / 0.4 / 2,
-          width: 1366 / 0.4,
-          height: 768 / 0.4,
-        });
+      const chunks = terrainWindow(x, y, 3);
       expect(chunks.length).toBeGreaterThan(0);
-      expect(chunks.length).toBeLessThanOrEqual(64);
-      expect(new Set(chunks.map((c) => chunkKey(c.x, c.y))).size).toBe(
-        chunks.length,
-      );
-      for (const c of chunks)
-        expect(chunkOf({ x: c.x * CHUNK_SIZE, y: c.y * CHUNK_SIZE })).toEqual(
-          c,
-        );
+      expect(chunks.length).toBeLessThanOrEqual(49);
+      expect(
+        new Set(chunks.map((chunk) => chunkKey(chunk.x, chunk.z))).size,
+      ).toBe(chunks.length);
+      expect(
+        chunks.some(
+          (chunk) =>
+            chunk.x === Math.floor(x / CHUNK_SIZE) &&
+            chunk.z === Math.floor(y / CHUNK_SIZE) &&
+            chunk.stride === 1,
+        ),
+      ).toBe(true);
+      expect(
+        chunks.every(
+          (chunk) =>
+            chunk.x >= 0 && chunk.x < 32 && chunk.z >= 0 && chunk.z < 32,
+        ),
+      ).toBe(true);
     }
   });
   it('supports long world-spanning paths and keeps paused/running simulation independent of terrain size', () => {

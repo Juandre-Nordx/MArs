@@ -33,6 +33,7 @@ function Model({
   playing,
   reset,
   onSize,
+  tint,
 }: {
   url: string;
   model: BuildingModel;
@@ -40,6 +41,7 @@ function Model({
   playing: boolean;
   reset: number;
   onSize?: (size: Size) => void;
+  tint?: string;
 }) {
   const gltf = useGLTF(url, false, false);
   const instance = useMemo(() => {
@@ -50,6 +52,16 @@ function Model({
     );
     const parts = new Map<number, Object3D>();
     const owned = new Set<MeshStandardMaterial>();
+    const ghost = tint
+      ? new MeshStandardMaterial({
+          color: tint,
+          opacity: 0.48,
+          transparent: true,
+          depthWrite: false,
+          roughness: 0.85,
+        })
+      : undefined;
+    if (ghost) owned.add(ghost);
     const pulses = Object.values(model.animations).some(
       (entry) => entry?.method === 'builtin' && entry.effect === 'pulse',
     );
@@ -58,6 +70,12 @@ function Model({
       const node = indices[index++];
       if (node !== undefined) parts.set(node, object);
       if (!(object instanceof Mesh)) return;
+      if (ghost) {
+        object.material = ghost;
+        object.castShadow = false;
+        object.receiveShadow = false;
+        return;
+      }
       object.castShadow = true;
       object.receiveShadow = true;
       if (!pulses) return;
@@ -74,7 +92,7 @@ function Model({
     const raw = new Box3().setFromObject(copy);
     if (raw.isEmpty()) throw new Error('The model has no visible bounds.');
     return { scene: copy, parts, owned, raw, mixer: new AnimationMixer(copy) };
-  }, [gltf, model.animations]);
+  }, [gltf, model.animations, tint]);
   const transform = useMemo(() => {
     const group = new Group();
     const rotation = new Euler(
@@ -237,6 +255,7 @@ export function UploadedModel({
   playing,
   reset = 0,
   onSize,
+  tint,
   fallback,
   loading = fallback,
 }: {
@@ -246,6 +265,7 @@ export function UploadedModel({
   playing: boolean;
   reset?: number;
   onSize?: (size: Size) => void;
+  tint?: string;
   fallback: ReactNode;
   loading?: ReactNode;
 }) {
@@ -271,6 +291,7 @@ export function UploadedModel({
           playing={playing}
           reset={reset}
           onSize={onSize}
+          tint={tint}
         />
       </Suspense>
     </ModelBoundary>

@@ -1,4 +1,3 @@
-import { legacyLandingZone as findLandingZone } from '../helpers/landing.js';
 import { partiallyStockedColony } from '../helpers/resources.js';
 import { expect, test } from '@playwright/test';
 import {
@@ -7,7 +6,7 @@ import {
   routeBetween,
   step,
 } from '../../packages/simulation/src/index.js';
-import { tileToWorld } from '../../apps/web/src/iso.js';
+import { clickTile, worldCanvas } from '../helpers/perspective.js';
 test('a company receives electricity through a side cable and loses it when that contact is disabled', async ({
   page,
 }) => {
@@ -31,16 +30,12 @@ test('a company receives electricity through a side cable and loses it when that
     s,
   );
   await page.getByRole('button', { name: 'Load', exact: true }).click();
-  const company = s.buildings.find((b) => b.type === 'oxygen-generator')!,
-    box = await page.locator('canvas').boundingBox();
-  if (!box) throw new Error('Missing canvas');
-  const z = findLandingZone(1),
-    center = tileToWorld(z.x, z.y),
-    p = tileToWorld(company.x, company.y);
-  await page.mouse.click(
-    box.x + box.width / 2 + p.x - center.x,
-    box.y + box.height / 2 + p.y - center.y,
+  const company = s.buildings.find((b) => b.type === 'oxygen-generator')!;
+  await expect(worldCanvas(page)).toHaveAttribute(
+    'data-landing-tile',
+    `${s.landingZone.x},${s.landingZone.y}`,
   );
+  await clickTile(page, company, 0.3);
   await expect(page.getByTestId('building-status')).toHaveText('running');
   const cable = page
     .getByTestId('network-inspector')

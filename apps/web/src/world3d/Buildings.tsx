@@ -383,6 +383,7 @@ export function BuildingRenderer({
   configuredModel,
   health = 100,
   speed = 0,
+  modelYaw = 0,
 }: ModelProps & {
   tile: Tile;
   seed: number;
@@ -392,6 +393,7 @@ export function BuildingRenderer({
   configuredModel?: BuildingModel;
   health?: number;
   speed?: number;
+  modelYaw?: number;
 }) {
   const { low, high } = useMemo(
     () => foundationRange(seed, landing, tile, width, depth),
@@ -443,12 +445,17 @@ export function BuildingRenderer({
         color={tint ?? '#5f5045'}
         opacity={tint ? 0.47 : 1}
       />
-      <group ref={model} scale={[1, entrance.current ? 0.03 : 1, 1]}>
-        {configuredModel && !tint ? (
+      <group
+        ref={model}
+        rotation={[0, (modelYaw * Math.PI) / 180, 0]}
+        scale={[1, entrance.current ? 0.03 : 1, 1]}
+      >
+        {configuredModel ? (
           <UploadedModel
             model={configuredModel}
             state={visualState}
-            playing={constructing || speed > 0}
+            playing={!tint && (constructing || speed > 0)}
+            tint={tint}
             fallback={fallback}
           />
         ) : (

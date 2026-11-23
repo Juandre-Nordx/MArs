@@ -493,7 +493,7 @@ summary {
   top: 60px;
 }
 .toast button,
-.building-popup-header button {
+.building-popup-header button[aria-label='Close building information'] {
   flex: 0 0 var(--control-height);
   width: var(--control-height);
   font-size: var(--action-icon);
@@ -894,4 +894,14 @@ summary {
   margin: 0;
   padding: 3rem 1rem;
   text-align: center;
+}
+
+.placement-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.building-focus {
+  margin-top: 8px;
 }

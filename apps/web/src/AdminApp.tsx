@@ -9,7 +9,6 @@ import {
   type RecipeEntry,
 } from '@mars/simulation';
 import { CatalogueArt } from './catalogue-art';
-import { SpritePreview } from './SpritePreview';
 import { BuildingModelEditor, type ModelUpload } from './BuildingModelEditor';
 import { Field, Num } from './admin-fields';
 import './admin.css';
@@ -20,7 +19,6 @@ type Draft = {
   baseVersion: number | null;
   document: CatalogueDocument;
 };
-type ArtworkField = 'icon' | 'sprite';
 type ArtworkUpload = { id: string; width: number; height: number };
 type ArtworkFeedback =
   | { result: ArtworkUpload }
@@ -29,7 +27,6 @@ type Data = {
   artworkLimits?: {
     inputBytes: number;
     outputBytes: number;
-    spriteOutputBytes?: number;
     minSide: number;
     maxSide: number;
     iconSide: number;
@@ -192,10 +189,10 @@ export default function AdminApp() {
     [message, setMessage] = useState(''),
     [error, setError] = useState(''),
     [working, setBusy] = useState(false),
-    [uploading, setUploading] = useState<ArtworkField | 'model' | null>(null),
-    [artworkFeedback, setArtworkFeedback] = useState<
-      Partial<Record<ArtworkField, ArtworkFeedback>>
-    >({}),
+    [uploading, setUploading] = useState<'icon' | 'model' | null>(null),
+    [artworkFeedback, setArtworkFeedback] = useState<ArtworkFeedback | null>(
+      null,
+    ),
     [query, setQuery] = useState(''),
     [sort, setSort] = useState('name'),
     [descending, setDescending] = useState(false),
@@ -305,7 +302,7 @@ export default function AdminApp() {
     if (next === 'Minerals & Resources') setKind('resources');
     if (next === 'Industry Buildings') setKind('buildings');
     setEntry(null);
-    setArtworkFeedback({});
+    setArtworkFeedback(null);
     setDirty(false);
     setQuery('');
     if (next === 'Audit History')
@@ -315,7 +312,7 @@ export default function AdminApp() {
     if (!discard()) return;
     setEntry(structuredClone(value));
     setCreating(create);
-    setArtworkFeedback({});
+    setArtworkFeedback(null);
     setDirty(false);
   }
   function change(patch: Record<string, unknown>) {
@@ -347,7 +344,6 @@ export default function AdminApp() {
               ...common,
               category: 'Industry',
               icon: 'placeholder:building',
-              sprite: 'placeholder:building',
               width: 1,
               height: 1,
               cost: [],
@@ -372,16 +368,12 @@ export default function AdminApp() {
             };
     edit(value, true);
   }
-  async function upload(
-    file: File | undefined,
-    slot: string,
-    field: ArtworkField,
-  ) {
+  async function upload(file: File | undefined, slot: string) {
     const limits = data?.artworkLimits;
     if (!file || !limits || !entry || busy || uploadRequest.current) return;
     const controller = new AbortController();
     uploadRequest.current = controller;
-    setUploading(field);
+    setUploading('icon');
     setMessage('');
     try {
       const { inputBytes } = limits;
@@ -392,7 +384,7 @@ export default function AdminApp() {
 
       const payload = await encodedFile(file, controller.signal);
       const { signal } = controller;
-      const previous = artworkFeedback[field];
+      const previous = artworkFeedback;
       const activeSession =
         previous && 'error' in previous && previous.reauthenticate
           ? await request<Session>('session', undefined, { signal })
@@ -404,15 +396,8 @@ export default function AdminApp() {
       );
       if (uploadRequest.current !== controller || signal.aborted) return;
       if (activeSession !== session) setSession(activeSession);
-      if (
-        field === 'sprite' &&
-        'sprite' in entry &&
-        entry.sprite.startsWith('placeholder:') &&
-        !entry.spriteAlignment
-      )
-        change({ sprite: result.id, spriteAlignment: 'footprint-front' });
-      else change({ [field]: result.id });
-      setArtworkFeedback((feedback) => ({ ...feedback, [field]: { result } }));
+      change({ icon: result.id });
+      setArtworkFeedback({ result });
     } catch (error) {
       if (uploadRequest.current !== controller || controller.signal.aborted)
         return;
@@ -427,10 +412,7 @@ export default function AdminApp() {
           : error instanceof Error
             ? error.message
             : 'Please try again.';
-      setArtworkFeedback((feedback) => ({
-        ...feedback,
-        [field]: { error: reason, reauthenticate },
-      }));
+      setArtworkFeedback({ error: reason, reauthenticate });
     } finally {
       if (uploadRequest.current === controller) {
         uploadRequest.current = null;
@@ -439,7 +421,7 @@ export default function AdminApp() {
     }
   }
   async function uploadModel(file: File) {
-    if (!entry || !('sprite' in entry) || busy || uploadRequest.current)
+    if (!entry || !('utilities' in entry) || busy || uploadRequest.current)
       throw new Error('Finish the current request before uploading a model.');
     const controller = new AbortController();
     uploadRequest.current = controller;
@@ -474,15 +456,10 @@ export default function AdminApp() {
       'Catalogue published atomically. Existing colonies receive its latest 3D models when their visuals refresh.',
     );
   }
-  function asset(
-    label: string,
-    field: ArtworkField,
-    reference: string,
-    slot: string,
-  ) {
+  function asset(label: string, reference: string, slot: string) {
     const artKind = slot === 'resource-icon' ? 'resource' : 'building';
     const limits = data?.artworkLimits;
-    const feedback = artworkFeedback[field];
+    const feedback = artworkFeedback;
     const helpId = `artwork-${slot}-limits`;
     const feedbackId = `artwork-${slot}-feedback`;
     const uploadError = feedback && 'error' in feedback ? feedback : undefined;
@@ -503,16 +480,16 @@ export default function AdminApp() {
             accept="image/png,image/webp"
             disabled={busy || !limits}
             aria-describedby={`${helpId} ${feedbackId}`}
-            aria-invalid={!!uploadError && uploading !== field}
+            aria-invalid={!!uploadError && uploading !== 'icon'}
             onChange={(e) => {
               const file = e.currentTarget.files?.[0];
               e.currentTarget.value = '';
-              void upload(file, slot, field);
+              void upload(file, slot);
             }}
           />
         </Field>
         <div id={feedbackId}>
-          {uploading === field ? (
+          {uploading === 'icon' ? (
             <p role="status">Uploading…</p>
           ) : uploadError ? (
             <p role="alert" className="admin-error">
@@ -540,11 +517,8 @@ export default function AdminApp() {
           type="button"
           disabled={busy}
           onClick={() => {
-            change({ [field]: `placeholder:${artKind}` });
-            setArtworkFeedback((current) => ({
-              ...current,
-              [field]: undefined,
-            }));
+            change({ icon: `placeholder:${artKind}` });
+            setArtworkFeedback(null);
           }}
         >
           Reset {label.toLowerCase()} to placeholder
@@ -555,16 +529,9 @@ export default function AdminApp() {
               Still PNG or WebP. Input up to {displayBytes(limits.inputBytes)},{' '}
               {limits.minSide}–{limits.maxSide} px per side, and{' '}
               {limits.maxPixels.toLocaleString()} pixels total.
-              {field === 'icon'
-                ? ` Larger icons shrink to fit ${limits.iconSide}×${limits.iconSide} px.`
-                : ' Sprites keep their original dimensions.'}{' '}
-              Processed PNG limit{' '}
-              {displayBytes(
-                field === 'sprite'
-                  ? (limits.spriteOutputBytes ?? limits.outputBytes)
-                  : limits.outputBytes,
-              )}
-              . Publishing makes the saved artwork public.
+              {` Larger icons shrink to fit ${limits.iconSide}×${limits.iconSide} px.`}{' '}
+              Processed PNG limit {displayBytes(limits.outputBytes)}. Publishing
+              makes the saved artwork public.
             </>
           ) : (
             'Artwork limits are unavailable. Refresh after the API is updated.'
@@ -600,7 +567,8 @@ export default function AdminApp() {
   function form() {
     if (!entry || !data?.draft) return null;
     const resources = data.draft.document.resources;
-    const layout = 'sprite' in entry ? buildingLayoutRules(entry) : undefined;
+    const layout =
+      'utilities' in entry ? buildingLayoutRules(entry) : undefined;
     return (
       <form
         className="admin-editor"
@@ -617,7 +585,7 @@ export default function AdminApp() {
             setData({ ...data, draft });
             setEntry(draft.document[kind].find((v) => v.id === entry.id)!);
             setCreating(false);
-            setArtworkFeedback({});
+            setArtworkFeedback(null);
             setDirty(false);
             await refresh();
             setMessage(
@@ -635,7 +603,7 @@ export default function AdminApp() {
             onClick={() => {
               if (discard()) {
                 setEntry(null);
-                setArtworkFeedback({});
+                setArtworkFeedback(null);
                 setDirty(false);
               }
             }}
@@ -713,10 +681,10 @@ export default function AdminApp() {
               and archived until simulation support exists. Base price is
               catalogue metadata; trading is pending.
             </p>
-            {asset('Resource icon', 'icon', entry.icon, 'resource-icon')}
+            {asset('Resource icon', entry.icon, 'resource-icon')}
           </>
         )}
-        {'sprite' in entry && (
+        {'utilities' in entry && (
           <>
             <div className="admin-fields">
               <Text
@@ -766,7 +734,7 @@ export default function AdminApp() {
               {layout?.footprintEditable
                 ? `Battery footprints can be 1–${maxBatteryFootprint} tiles wide and high. New colonies use the published dimensions. Existing saves keep their pinned size.`
                 : layout
-                  ? 'This building has a fixed gameplay footprint. Use Sprite alignment and Sprite scale to fit the artwork to its tiles.'
+                  ? 'This building has a fixed gameplay footprint. Use the 3D Model settings to fit the building model to its tiles.'
                   : 'Planned building geometry can be recorded in the draft.'}
             </p>
             <fieldset>
@@ -881,58 +849,10 @@ export default function AdminApp() {
                 .join(', ') || 'None'}
               . Use the Recipes table to edit them.
             </p>
-            <div className="admin-artwork">
-              {asset('Building icon', 'icon', entry.icon, 'building-icon')}
-              {asset(
-                'Isometric sprite',
-                'sprite',
-                entry.sprite,
-                'building-sprite',
-              )}
-              <fieldset>
-                <legend>Sprite alignment preview</legend>
-                <SpritePreview key={entry.sprite} entry={entry} />
-                <Field label="Sprite alignment">
-                  <select
-                    value={entry.spriteAlignment ?? 'footprint-front'}
-                    onChange={(event) =>
-                      change({ spriteAlignment: event.target.value })
-                    }
-                  >
-                    <option value="footprint-front">Footprint front</option>
-                    <option value="tile-center">First tile (legacy)</option>
-                  </select>
-                </Field>
-                <small>
-                  Match the sprite's front ground corner to the dot. Start with
-                  Anchor X 0.5 and Y 1. Lower Anchor Y if there is transparent
-                  space below the sprite. Adjust scale to fit the tile grid.
-                  This preview uses the new-colony proportions.
-                </small>
-                <Num
-                  label="Sprite scale"
-                  value={entry.scale}
-                  min={0.1}
-                  max={4}
-                  onChange={(scale) => change({ scale })}
-                />
-                <Num
-                  label="Anchor X"
-                  value={entry.anchor.x}
-                  max={1}
-                  onChange={(x) => change({ anchor: { ...entry.anchor, x } })}
-                />
-                <Num
-                  label="Anchor Y"
-                  value={entry.anchor.y}
-                  max={1}
-                  onChange={(y) => change({ anchor: { ...entry.anchor, y } })}
-                />
-              </fieldset>
-            </div>
+            {asset('Building icon', entry.icon, 'building-icon')}
           </>
         )}
-        {'sprite' in entry && (
+        {'utilities' in entry && (
           <BuildingModelEditor
             key={entry.id}
             entry={entry}
@@ -1213,8 +1133,8 @@ export default function AdminApp() {
             <p>
               Save uploaded artwork to a draft, then validate and publish it.
               Back up PostgreSQL and the API artwork volume when configured.
-              Existing colonies keep the artwork references from their own
-              catalogue.
+              Existing colonies keep their catalogue and receive new published
+              3D models when their visuals refresh.
             </p>
           </>
         )}
@@ -1428,8 +1348,7 @@ export default function AdminApp() {
                   Restore supported footprints and utility channels for{' '}
                   {layoutsToRepair.length}{' '}
                   {layoutsToRepair.length === 1 ? 'building' : 'buildings'}.
-                  Artwork, sprite alignment, and other draft edits stay in
-                  place.
+                  Artwork, model alignment, and other draft edits stay in place.
                 </p>
                 <button
                   disabled={busy}

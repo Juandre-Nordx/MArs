@@ -20,6 +20,8 @@ import {
   type InfrastructureType,
   alerts,
   buildingAt,
+  buildingYaws,
+  type BuildingYaw,
   runtimeCatalogue,
   buildingAvailable,
   catalogueSnapshotSchema,
@@ -29,7 +31,6 @@ import {
   construct,
   deployColony,
   loadSave,
-  placement,
   resourceKeys,
   setSpeed,
   SOL_TICKS,
@@ -42,7 +43,7 @@ import {
 import { NetworkInspector } from './NetworkInspector';
 import { ResidentsPanel } from './ResidentsPanel';
 import { ColonistInspector } from './ColonistInspector';
-import { World, type WorldProps } from './World';
+import type { WorldProps } from './world3d/World3D';
 import { placement3D } from './world3d/terrain';
 import { WorldNavigator } from './WorldNavigator';
 import './style.css';
@@ -99,6 +100,10 @@ function App() {
   const [focus, setFocus] = useState<Tile | null>(null);
   const [mission, setMission] = useState(0);
   const [construction, setConstruction] = useState<BuildingType | null>(null);
+  const [modelYaw, setModelYaw] = useState<BuildingYaw>(0);
+  const rotateModel = useCallback(() => {
+    setModelYaw((yaw) => buildingYaws[(yaw / 90 + 1) % buildingYaws.length]!);
+  }, []);
   const constructionRef = useRef(construction);
   constructionRef.current = construction;
   const [category, setCategory] = useState<Category | 'Infrastructure' | null>(
@@ -114,6 +119,8 @@ function App() {
   );
   const cancelPlacement = useCallback(() => {
     setConstruction(null);
+    setHover(null);
+    setModelYaw(0);
     setInfrastructureTool(null);
     setDraft([]);
   }, []);
@@ -121,13 +128,7 @@ function App() {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [storageOpen, setStorageOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [threeD, setThreeD] = useState(false);
   const [lowGraphics, setLowGraphics] = useState(false);
-  const fallback = useCallback(() => {
-    setThreeD(false);
-    setMessage('3D needs WebGL 2. The isometric map is active.');
-  }, []);
-  const validatePlacement = threeD ? placement3D : placement;
   const publish = useCallback((state: ColonyState, reset = false) => {
     clock.current = {
       colony: state,
@@ -142,11 +143,9 @@ function App() {
       const type = constructionRef.current;
       if (state && type) {
         try {
-          if (threeD) {
-            const check = placement3D(state, type, value);
-            if (!check.valid) throw new Error(check.reason);
-          }
-          publish(construct(state, type, value));
+          const check = placement3D(state, type, value);
+          if (!check.valid) throw new Error(check.reason);
+          publish(construct(state, type, value, modelYaw));
           setConstruction(null);
           setMessage('Construction complete — costs deducted');
         } catch (error) {
@@ -158,7 +157,7 @@ function App() {
       setSelectedResidentId(null);
       setTile(value);
     },
-    [publish, threeD],
+    [publish, modelYaw],
   );
   const touchdown = useCallback(() => {
     const state = clock.current?.colony;
@@ -186,17 +185,30 @@ function App() {
   useEffect(() => {
     const cancel = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setConstruction(null);
-        setInfrastructureTool(null);
-        setDraft([]);
+        cancelPlacement();
         setCategory(null);
         setSelectedResidentId(null);
         setTile(null);
       }
+      if (
+        constructionRef.current &&
+        !event.repeat &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        event.key.toLowerCase() === 'r' &&
+        !(
+          event.target instanceof HTMLElement &&
+          event.target.closest('input, select, textarea, [contenteditable]')
+        )
+      ) {
+        event.preventDefault();
+        rotateModel();
+      }
     };
     window.addEventListener('keydown', cancel);
     return () => window.removeEventListener('keydown', cancel);
-  }, []);
+  }, [cancelPlacement, rotateModel]);
   async function start() {
     if (
       colony &&
@@ -277,7 +289,7 @@ function App() {
   const warnings = colony ? alerts(colony) : [];
   const preview =
     colony && construction && hover
-      ? validatePlacement(colony, construction, hover)
+      ? placement3D(colony, construction, hover)
       : null;
   const infrastructurePreview =
     colony && infrastructureTool && draft.length
@@ -329,6 +341,7 @@ function App() {
     selected: tile,
     hovered: hover,
     construction,
+    modelYaw,
     onSelect: select,
     onHover: setHover,
     onTouchdown: touchdown,
@@ -497,54 +510,29 @@ function App() {
               {inspectorOpen ? 'Hide inspector' : 'Show inspector'}
             </button>
           </div>
-          {threeD ? (
-            <Suspense
-              fallback={
-                <p className="map-loading" role="status">
-                  Loading 3D terrain…
-                </p>
-              }
-            >
-              <World3D
-                {...worldProps}
-                low={lowGraphics}
-                onFallback={fallback}
-              />
-            </Suspense>
-          ) : (
-            <World {...worldProps} />
-          )}
+          <Suspense
+            fallback={
+              <p className="map-loading" role="status">
+                Loading 3D terrain…
+              </p>
+            }
+          >
+            <World3D {...worldProps} low={lowGraphics} />
+          </Suspense>
           <div className="map-renderer-controls">
             <label>
-              Map view
+              Graphics
               <select
-                aria-label="Map view"
-                value={threeD ? '3d' : '2d'}
-                onChange={(event) => {
-                  cancelPlacement();
-                  setHover(null);
-                  setThreeD(event.target.value === '3d');
-                }}
+                aria-label="Graphics"
+                value={lowGraphics ? 'low' : 'balanced'}
+                onChange={(event) =>
+                  setLowGraphics(event.target.value === 'low')
+                }
               >
-                <option value="2d">Isometric</option>
-                <option value="3d">3D preview</option>
+                <option value="balanced">Balanced</option>
+                <option value="low">Low</option>
               </select>
             </label>
-            {threeD && (
-              <label>
-                Graphics
-                <select
-                  aria-label="Graphics"
-                  value={lowGraphics ? 'low' : 'balanced'}
-                  onChange={(event) =>
-                    setLowGraphics(event.target.value === 'low')
-                  }
-                >
-                  <option value="balanced">Balanced</option>
-                  <option value="low">Low</option>
-                </select>
-              </label>
-            )}
           </div>
           <div className="map-caption">
             <span className="eyebrow">
@@ -553,9 +541,8 @@ function App() {
                 : 'ARCADIA PLANITIA / SURFACE VIEW'}
             </span>
             <p>
-              {threeD
-                ? 'Drag or WASD to pan · Right drag to rotate and tilt · Scroll to zoom'
-                : 'Drag to pan · Scroll to zoom · Click to select'}
+              WASD or middle drag to pan · Right drag to orbit and tilt · Scroll
+              to zoom
             </p>
           </div>
           {colony && building && (
@@ -564,6 +551,13 @@ function App() {
               colony={colony}
               building={building}
               onClose={() => setTile(null)}
+              onFocus={() => {
+                const { width, height } = buildingDefinitions[building.type];
+                setFocus({
+                  x: building.x + (width - 1) / 2,
+                  y: building.y + (height - 1) / 2,
+                });
+              }}
               onCommand={(update) => {
                 if (clock.current) publish(update(clock.current.colony));
               }}
@@ -624,7 +618,12 @@ function App() {
                   {buildingDefinitions[construction].cost.credits} credits · Esc
                   to cancel
                 </small>
-                <button onClick={cancelPlacement}>Cancel placement</button>
+                <div className="placement-actions">
+                  <button onClick={rotateModel}>
+                    Rotate model ({modelYaw}°) · R
+                  </button>
+                  <button onClick={cancelPlacement}>Cancel placement</button>
+                </div>
               </div>
             )}
             {category === 'Infrastructure' && (
@@ -684,6 +683,8 @@ function App() {
                         onClick={() => {
                           setInfrastructureTool(null);
                           setDraft([]);
+                          setModelYaw(0);
+                          setHover(null);
                           setConstruction(type);
                           setCategory(null);
                         }}
@@ -889,8 +890,7 @@ function App() {
             </details>
           )}
           <p className="muted">
-            Temporary original sprite artwork · Browser saves only · Cargo
-            logistics and refining pending
+            Browser saves only · Cargo logistics and refining pending
           </p>
         </aside>
       </section>

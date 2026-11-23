@@ -1,7 +1,4 @@
-import {
-  legacyGame as newGame,
-  legacyLandingZone as findLandingZone,
-} from '../helpers/landing.js';
+import { legacyGame as newGame } from '../helpers/landing.js';
 import { expect, test } from '@playwright/test';
 import {
   buildInfrastructure,
@@ -10,7 +7,7 @@ import {
   refreshNetworks,
   routeBetween,
 } from '../../packages/simulation/src/index.js';
-import { tileToWorld } from '../../apps/web/src/iso.js';
+import { clickTile, worldCanvas } from '../helpers/perspective.js';
 test('a home uses side-only oxygen and reports both adjacent road components', async ({
   page,
 }) => {
@@ -40,15 +37,11 @@ test('a home uses side-only oxygen and reports both adjacent road components', a
     s,
   );
   await page.getByRole('button', { name: 'Load', exact: true }).click();
-  const box = await page.locator('canvas').boundingBox();
-  if (!box) throw new Error('Missing canvas');
-  const zone = findLandingZone(1),
-    center = tileToWorld(zone.x, zone.y),
-    p = tileToWorld(home.x, home.y);
-  await page.mouse.click(
-    box.x + box.width / 2 + p.x - center.x,
-    box.y + box.height / 2 + p.y - center.y,
+  await expect(worldCanvas(page)).toHaveAttribute(
+    'data-landing-tile',
+    `${s.landingZone.x},${s.landingZone.y}`,
   );
+  await clickTile(page, home, 0.3);
   await expect(
     page
       .getByTestId('building-inspector')

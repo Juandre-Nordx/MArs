@@ -1,7 +1,6 @@
 import {
   CHUNK_SIZE,
   footprint,
-  hash,
   placement,
   WORLD_SIZE,
   type BuildingType,
@@ -9,78 +8,8 @@ import {
   type Tile,
 } from '@mars/simulation';
 
-const smooth = (t: number) => t * t * (3 - 2 * t);
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-
-function noise(seed: number, x: number, z: number, size: number) {
-  const a = Math.floor(x / size);
-  const b = Math.floor(z / size);
-  const u = smooth(x / size - a);
-  const v = smooth(z / size - b);
-  const value = (i: number, j: number) => hash(seed, i, j) / 0xffffffff;
-  return lerp(
-    lerp(value(a, b), value(a + 1, b), u),
-    lerp(value(a, b + 1), value(a + 1, b + 1), u),
-    v,
-  );
-}
-
-const basinSize = 32;
-export function craterAt(seed: number, x: number, z: number) {
-  const value = hash(seed + 91, x, z);
-  return {
-    x: x * basinSize + 12 + (value % 9),
-    z: z * basinSize + 12 + ((value >>> 8) % 9),
-    radius: 5 + ((value >>> 16) % 8),
-    depth: 1.5 + ((value >>> 24) % 5) * 0.35,
-  };
-}
-
-export function elevation(seed: number, x: number, z: number, landing: Tile) {
-  const strata = noise(seed + 37, x, z, 42);
-  const ridge = Math.max(0, (strata - 0.56) * 2);
-  let height =
-    (noise(seed, x, z, 33) - 0.5) * 6 +
-    (noise(seed + 1, x, z, 9) - 0.5) * (0.6 + ridge * 3) +
-    ridge * 6;
-  const cx = Math.floor(x / basinSize);
-  const cz = Math.floor(z / basinSize);
-  for (let i = cx - 1; i <= cx + 1; i++) {
-    for (let j = cz - 1; j <= cz + 1; j++) {
-      const crater = craterAt(seed, i, j);
-      const distance = Math.hypot(x - crater.x, z - crater.z) / crater.radius;
-      if (distance < 1.3) {
-        const floor = 1 - smooth(Math.min(1, distance));
-        const rim = Math.max(0, 1 - Math.abs(distance - 1) / 0.3);
-        height += crater.depth * (rim * 0.28 - floor);
-      }
-    }
-  }
-  const landingDistance = Math.max(
-    Math.abs(x - landing.x),
-    Math.abs(z - landing.y),
-  );
-  return (
-    height *
-    lerp(0.16, 1, smooth(Math.min(1, Math.max(0, (landingDistance - 8) / 12))))
-  );
-}
-
-// The full-resolution mesh uses the same diagonal in every tile.
-export function surfaceAt(seed: number, x: number, z: number, landing: Tile) {
-  const left = Math.floor(x + 0.5) - 0.5;
-  const back = Math.floor(z + 0.5) - 0.5;
-  const u = x - left;
-  const v = z - back;
-  const b = elevation(seed, left + 1, back, landing);
-  const c = elevation(seed, left, back + 1, landing);
-  if (u + v <= 1) {
-    const a = elevation(seed, left, back, landing);
-    return a + (b - a) * u + (c - a) * v;
-  }
-  const d = elevation(seed, left + 1, back + 1, landing);
-  return d + (c - d) * (1 - u) + (b - d) * (1 - v);
-}
+import { elevation } from './heightmap';
+export { craterAt, elevation, surfaceAt } from './heightmap';
 
 export function worldTile(x: number, z: number): Tile | null {
   const tile = { x: Math.floor(x + 0.5), y: Math.floor(z + 0.5) };
@@ -102,23 +31,26 @@ export function foundationRange(
   let low = Infinity;
   let high = -Infinity;
   let steepest = 0;
-  for (let j = 0; j <= height; j++) {
-    for (let i = 0; i <= width; i++) {
-      const x = tile.x + i - 0.5;
-      const z = tile.y + j - 0.5;
-      const value = elevation(seed, x, z, landing);
-      low = Math.min(low, value);
-      high = Math.max(high, value);
-      if (i < width)
+  const corners = Array.from({ length: height + 1 }, (_, row) =>
+    Array.from({ length: width + 1 }, (_, column) =>
+      elevation(seed, tile.x + column - 0.5, tile.y + row - 0.5, landing),
+    ),
+  );
+  for (let row = 0; row <= height; row++) {
+    for (let column = 0; column <= width; column++) {
+      const a = corners[row]![column]!;
+      low = Math.min(low, a);
+      high = Math.max(high, a);
+      if (row < height && column < width) {
+        const b = corners[row]![column + 1]!;
+        const c = corners[row + 1]![column]!;
+        const d = corners[row + 1]![column + 1]!;
         steepest = Math.max(
           steepest,
-          Math.abs(value - elevation(seed, x + 1, z, landing)),
+          Math.hypot(b - a, c - a),
+          Math.hypot(d - c, d - b),
         );
-      if (j < height)
-        steepest = Math.max(
-          steepest,
-          Math.abs(value - elevation(seed, x, z + 1, landing)),
-        );
+      }
     }
   }
   return { low, high, steepest };

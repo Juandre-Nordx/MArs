@@ -1,6 +1,11 @@
 import { expect, it } from 'vitest';
 import {
+  construct,
   deployColony,
+  footprint,
+  loadSave,
+  placement,
+  revealArea,
   newGame,
   segmentId,
   type Segment,
@@ -39,6 +44,12 @@ it('interpolates along the terrain mesh diagonal and snaps from X/Z to tile X/Y'
   const start = elevation(7, 21.5, 20.5, land);
   const end = elevation(7, 20.5, 21.5, land);
   expect(surfaceAt(7, 21, 21, land)).toBeCloseTo((start + end) / 2);
+  const westEdge = 15.5;
+  const north = elevation(7, westEdge, 19.5, land);
+  const south = elevation(7, westEdge, 23.5, land);
+  expect(surfaceAt(7, westEdge, 21.5, land, 4)).toBeCloseTo(
+    (north + south) / 2,
+  );
   expect(worldTile(21.49, 21.51)).toEqual({ x: 21, y: 22 });
   expect(worldTile(511.5, 3)).toBeNull();
   expect(worldTile(-0.51, 3)).toBeNull();
@@ -98,4 +109,38 @@ it('draws a live utility edge only between usable same-channel cardinal neighbor
   expect(edges).toHaveLength(2);
   expect(edges.every((edge) => edge.type === 'power')).toBe(true);
   expect(result.some((link) => link.color === 0xde6b4e)).toBe(true);
+});
+
+it('rejects a steep explored plot that is otherwise clear to build on', () => {
+  const colony = deployColony(newGame(1));
+  const plot = { x: 235, y: 232 };
+  colony.world = revealArea(colony.world, colony.seed, plot, plot);
+  expect(placement(colony, 'housing', plot).valid).toBe(true);
+  expect(placement3D(colony, 'housing', plot)).toEqual({
+    valid: false,
+    reason: 'Terrain is too steep for a standard foundation',
+  });
+});
+
+it('round trips model rotation independently from the footprint and simulation', () => {
+  const existing = deployColony(newGame(1));
+  const sites = Array.from({ length: 81 }, (_, i) => ({
+    x: existing.landingZone.x + (i % 9) - 4,
+    y: existing.landingZone.y + Math.floor(i / 9) - 4,
+  }));
+  const site = sites.find(
+    (tile) => placement3D(existing, 'housing', tile).valid,
+  )!;
+  const normal = construct(existing, 'housing', site);
+  const rotated = construct(existing, 'housing', site, 90);
+  const built = loadSave(JSON.parse(JSON.stringify(rotated))).buildings.at(-1)!;
+  expect(built.modelYaw).toBe(90);
+  expect(footprint(built.type, built, rotated)).toEqual(
+    footprint('housing', site, normal),
+  );
+  expect(rotated.inventory).toEqual(normal.inventory);
+  expect(rotated.networks).toEqual(normal.networks);
+  expect(
+    loadSave(JSON.parse(JSON.stringify(normal))).buildings.at(-1)!.modelYaw,
+  ).toBeUndefined();
 });

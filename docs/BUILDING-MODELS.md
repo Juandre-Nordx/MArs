@@ -6,11 +6,11 @@ Open **Industry Buildings** in the existing admin catalogue. Edit a building suc
 2. Set a uniform scale, a position offset in tile units, and an X/Y/Z rotation in degrees. With **Ground alignment** enabled, the transformed model is centered on the footprint and the bottom of its transformed bounds meets the top of the foundation. Position offsets apply after alignment. The preview reports the dimensions of the scaled and rotated bounds.
 3. Select a simulated state in **Animations**. Assign an embedded clip, built-in motion, or **None** to each state. **Play**, **Pause**, and **Reset** only affect the editor preview. Built-in motion supports rotation, vertical or horizontal oscillation, and emissive pulsing. Use **Model part** to restrict the effect to a named node and its descendants. Speed is an embedded clip multiplier or built-in cycles per second. Travel distance is in model units before scaling.
 4. Choose **Save Model Settings** to save the building draft. **Publish** validates and publishes the saved catalogue draft, including other saved edits. Uploading by itself keeps the model private.
-5. Reopen **3D preview** or refresh the game to load the published visuals. The 3D view also checks for new visuals when its window regains focus. **Reset to default model** restores the procedural building after the reset is saved and published. A failed load falls back to that same procedural model.
+5. Reload the game to load the published visuals. The 3D view also checks for new visuals when its window regains focus. **Reset to default model** restores the procedural building after the reset is saved and published. A failed load falls back to that same procedural model.
 
 The 3D scene uses the configured **Construction** state for its entrance animation after placement, **Damaged** for buildings below full health, **Working** when the simulation reports `running`, and **Idle** otherwise. A state without an assignment shows the model at rest. Pausing the simulation freezes building playback after the construction entrance. A replacement retains the transform and clears assignments so clip and node indexes are chosen for the new model.
 
-Published 3D visuals apply by stable building ID. Existing colonies keep their saved building IDs, catalogue IDs, footprints, coordinates, inventories and simulation behavior. The isometric icons and sprites still follow the colony's pinned catalogue.
+Published 3D visuals apply by stable building ID. Existing colonies keep their saved building IDs, catalogue IDs, footprints, coordinates, inventories and simulation behavior. Icons and archived sprite references stay attached to the pinned catalogue.
 
 ## Export and storage
 

@@ -234,7 +234,7 @@ export function catalogueErrors(doc: CatalogueDocument): string[] {
       errors.push(
         b.id === 'battery'
           ? `Building battery: the starter layout supports footprints up to ${maxBatteryFootprint}×${maxBatteryFootprint} tiles`
-          : `Building ${b.id}: footprint changes require a supported starter-layout migration. Use ${changes.width}×${changes.height} tiles or adjust the sprite alignment.`,
+          : `Building ${b.id}: footprint changes require a supported starter-layout migration. Use ${changes.width}×${changes.height} tiles or adjust the 3D model.`,
       );
     if (changes.utilities)
       errors.push(

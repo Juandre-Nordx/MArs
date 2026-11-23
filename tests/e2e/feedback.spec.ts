@@ -1,7 +1,4 @@
-import {
-  legacyGame as newGame,
-  legacyLandingZone as findLandingZone,
-} from '../helpers/landing.js';
+import { legacyGame as newGame } from '../helpers/landing.js';
 import { expect, test, type Page } from '@playwright/test';
 import {
   buildInfrastructure,
@@ -13,9 +10,12 @@ import {
   walkingPath,
   port,
   type ColonyState,
-  type Tile,
 } from '../../packages/simulation/src/index.js';
-import { tileToWorld } from '../../apps/web/src/iso.js';
+import {
+  cameraPose,
+  screenPoint,
+  worldCanvas,
+} from '../helpers/perspective.js';
 function fixture() {
   const s = deployColony(newGame());
   s.speed = 0;
@@ -35,17 +35,10 @@ async function load(page: Page, s: ColonyState) {
     s,
   );
   await page.getByRole('button', { name: 'Load', exact: true }).click();
-}
-async function point(page: Page, tile: Tile, zoom = 1, dy = 0) {
-  const box = await page.locator('canvas').boundingBox();
-  if (!box) throw new Error('No canvas');
-  const zone = findLandingZone(1),
-    c = tileToWorld(zone.x, zone.y),
-    p = tileToWorld(tile.x, tile.y);
-  return {
-    x: box.x + box.width / 2 + (p.x - c.x) * zoom,
-    y: box.y + box.height / 2 + (p.y - c.y + dy) * zoom,
-  };
+  await expect(worldCanvas(page)).toHaveAttribute(
+    'data-landing-tile',
+    `${s.landingZone.x},${s.landingZone.y}`,
+  );
 }
 test('click a colonist for grounded happiness/advice; picking works after zoom and dragging does not talk', async ({
   page,
@@ -54,7 +47,7 @@ test('click a colonist for grounded happiness/advice; picking works after zoom a
   page.on('pageerror', (e) => errors.push(e.message));
   const s = fixture();
   await load(page, s);
-  let p = await point(page, s.residents[0]!.position, 1, -15);
+  let p = await screenPoint(page, s.residents[0]!.position, 0.33);
   await page.mouse.click(p.x, p.y);
   await expect(
     page
@@ -74,9 +67,14 @@ test('click a colonist for grounded happiness/advice; picking works after zoom a
   const box = await page.locator('canvas').boundingBox();
   if (!box) throw new Error('No canvas');
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const beforeZoom = await cameraPose(page);
   await page.mouse.wheel(0, -200);
-  await page.waitForTimeout(100);
-  p = await point(page, s.residents[0]!.position, Math.exp(0.2), -15);
+  await expect
+    .poll(async () =>
+      (await cameraPose(page)).position.distanceTo(beforeZoom.position),
+    )
+    .toBeGreaterThan(0.2);
+  p = await screenPoint(page, s.residents[0]!.position, 0.33);
   await page.mouse.click(p.x, p.y);
   await expect(page.getByTestId('citizen-mood')).toHaveText('Content');
   await page.keyboard.press('Escape');
@@ -86,7 +84,8 @@ test('click a colonist for grounded happiness/advice; picking works after zoom a
   await page.mouse.move(p.x + 60, p.y + 30, { steps: 6 });
   await page.mouse.up();
   await expect(page.getByTestId('colonist-inspector')).toHaveCount(0);
-  await page.mouse.click(p.x + 60, p.y + 30);
+  p = await screenPoint(page, s.residents[0]!.position, 0.33);
+  await page.mouse.click(p.x, p.y);
   await expect(page.getByTestId('colonist-inspector')).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -115,7 +114,7 @@ test('citizen complaints update live when a side-adjacent water pipe reconnects 
   });
   if (!repair) throw new Error('No repair contact');
   await load(page, s);
-  const p = await point(page, s.residents[0]!.position, 1, -15);
+  const p = await screenPoint(page, s.residents[0]!.position, 0.33);
   await page.mouse.click(p.x, p.y);
   await expect(page.getByTestId('citizen-mood')).toHaveText('Distressed');
   await expect(page.getByTestId('citizen-concerns')).toContainText(
@@ -128,7 +127,7 @@ test('citizen complaints update live when a side-adjacent water pipe reconnects 
     .getByRole('button', { name: 'Infrastructure', exact: true })
     .click();
   await page.getByRole('button', { name: /^Water Pipe / }).click();
-  const target = await point(page, repair);
+  const target = await screenPoint(page, repair);
   await page.mouse.click(target.x, target.y);
   await page.getByRole('button', { name: 'Confirm route' }).click();
   await expect(page.getByTestId('citizen-mood')).toHaveText('Content');
@@ -153,7 +152,6 @@ test('a click keeps its citizen target when the person walks before mouse releas
   page,
 }) => {
   const s = fixture();
-  s.speed = 1;
   const resident = s.residents[0]!,
     destination = s.buildings.find((b) => b.type === 'starship')!;
   resident.waitTicks = 0;
@@ -165,10 +163,15 @@ test('a click keeps its citizen target when the person walks before mouse releas
   )!;
   resident.activity = 'walking';
   await load(page, s);
-  const p = await point(page, resident.position, 1, -15);
+  const p = await screenPoint(page, resident.position, 0.33);
   await page.mouse.move(p.x, p.y);
+  const tick = await page.getByTestId('tick').innerText();
   await page.mouse.down();
-  await page.waitForTimeout(1300);
+  await page
+    .getByRole('button', { name: '1×', exact: true })
+    .evaluate((button: HTMLButtonElement) => button.click());
+  await expect(page.getByTestId('tick')).not.toHaveText(tick);
+  await page.waitForTimeout(650);
   await page.mouse.up();
   await expect(
     page

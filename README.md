@@ -1,24 +1,24 @@
 # MARS: FIRST COLONY — V0.4.1
 
-An original browser-based isometric Mars colony prototype. Stage 2 extends the existing Stage 1 code; Phaser projection/camera controls, React/Vite, Fastify, npm workspaces and Railway configuration are preserved.
+An original browser-based 3D Mars colony simulation built with React, Vite, Three.js, and Fastify.
 
 ## Game interface
 
-New central colonies group ten habitats into two spaced rows with separate utility and service areas. Tanks and habitats take up less of their foundations than the larger facilities. Foundations and ground shadows follow the same isometric grid as terrain and utility lines. Existing saves keep their layout.
+New central colonies group ten habitats into two spaced rows with separate utility and service areas. Tanks and habitats take up less of their foundations than the larger facilities. Foundations and utility lines meet the terrain at their logical grid positions. Existing saves keep their layout.
 
 V0.4.1 compacts the mission HUD, restores properly sized resource artwork and gives the map more space. The inspector can be hidden, and building details and production controls scroll within the map. See the [release notes](docs/V0.4.1.md).
 
-## 3D colony preview
+## Perspective camera and construction
 
-Choose **3D preview** under **Map view** to play the same colony on seeded 3D terrain. The preview supports building and utility placement, selection, inspectors and the existing browser saves. **Graphics → Low** reduces draw distance and disables dynamic shadows and surface rocks. The map starts in **Isometric**. [Migration audit and controls](docs/3D-MIGRATION.md)
+The game opens in 3D. Use **WASD** or **middle drag** to pan, **right drag** to orbit and tilt, and the **mouse wheel** to zoom. The building inspector offers **Focus building**. Use **R** or **Rotate model** while placing to turn the model in 90° increments. The rotation is saved with the building. **Graphics → Low** reduces draw distance and disables dynamic shadows and surface rocks. [Perspective controls and save compatibility](docs/3D-MIGRATION.md)
 
 ## Catalogue administration
 
-V0.4 adds `/admin`: protected administrator sessions, resource/building/recipe editors, original isometric placeholder art, durable image uploads, validated drafts, atomic immutable publication and audit history. New colonies select a published catalogue; schema-8 browser saves embed their catalogue so future edits never silently change them. Unsupported industry remains planned. Existing colony gameplay and the drone fixes below are preserved.
+V0.4 adds `/admin`: protected administrator sessions, resource/building/recipe editors, procedural buildings, durable artwork uploads, validated drafts, atomic immutable publication and audit history. New colonies select a published catalogue; schema-8 browser saves embed their catalogue so future edits never silently change them. Unsupported industry remains planned. Existing colony gameplay and the drone fixes below are preserved.
 
 See [V0.4 setup, exact configuration, capability limits and verification](docs/V0.4.md). Administration needs PostgreSQL; gameplay continues without it. Production migrations and initial administrator creation are explicit operator commands, never startup actions.
 
-Resource and building icons, including those in **Industry Buildings**, resize to fit 512×512. Isometric sprites keep their dimensions within the sprite limits. See [artwork limits and upload workflow](docs/V0.4.md).
+Resource and building icons, including those in **Industry Buildings**, resize to fit 512×512. Archived sprite references remain readable. See [artwork limits and upload workflow](docs/V0.4.md).
 
 For split Railway deployments, mount the artwork volume on `@mars/api` at `/data/uploads`. Set `ASSET_STORAGE_DRIVER=volume` and `ASSET_STORAGE_PATH=/data/uploads` there. New artwork files go in `/data/uploads/catalogue-assets/`. The web service proxies `/api/*` to the API. Back up PostgreSQL and the artwork volume together. [Railway setup and recovery](docs/RAILWAY.md#railway-split-services-and-artwork-volume)
 
@@ -92,7 +92,7 @@ Save schema 4 preserves people, routes and in-flight buggies; older saves migrat
 
 ## Preserved infrastructure
 
-Water/oxygen pipes, electrical cables and roads now occupy separate tile layers. Compatible buildings use automatic perimeter contacts and independent network components; physical tanks/batteries keep reserves when a network splits. The starter colony includes connected utility routes and roads. Drag routes, preview total costs, confirm or cancel, demolish with configured refunds, inspect network metrics and toggle network overlays. Original cached transparent sprites replace the earlier flat blocks; the UI clearly labels them as temporary procedural art.
+Water/oxygen pipes, electrical cables and roads now occupy separate tile layers. Compatible buildings use automatic perimeter contacts and independent network components; physical tanks/batteries keep reserves when a network splits. The starter colony includes connected utility routes and roads. Drag routes, preview total costs, confirm or cancel, demolish with configured refunds, inspect network metrics and toggle network overlays. The map renders roads, pipes, and cables as terrain-conforming geometry.
 
 The v0.2.1 foundation persists infrastructure, disabled/damaged segments, physical stores and power priorities. Version 2 colonies retain buildings/resources and receive a one-time compatibility network. See [v0.2.1 implementation and migration details](docs/V0.2.1.md).
 
@@ -163,7 +163,7 @@ curl --fail http://127.0.0.1:3001/api/ready
 docker compose up --build
 ```
 
-V0.4 migration SQL and Prisma adapter integration were verified against isolated PostgreSQL 16. Production migration/deployment remains an explicit operator action. See [V0.4 verification details](docs/V0.4.md). The Railway startup fix changes deployment health to `/api/health` and starts HTTP independently of database migrations. Database readiness remains available separately at `/api/ready`; see [startup fix details](docs/RAILWAY-STARTUP-FIX.md). Vite reports a large Phaser bundle warning; it does not fail the build.
+V0.4 migration SQL and Prisma adapter integration were verified against isolated PostgreSQL 16. Production migration/deployment remains an explicit operator action. See [V0.4 verification details](docs/V0.4.md). The Railway startup fix changes deployment health to `/api/health` and starts HTTP independently of database migrations. Database readiness remains available separately at `/api/ready`; see [startup fix details](docs/RAILWAY-STARTUP-FIX.md).
 
 ## Architecture
 
@@ -175,13 +175,12 @@ V0.4 migration SQL and Prisma adapter integration were verified against isolated
 - `packages/simulation/src/networks.ts`: reusable channel graphs, ports, physical storage and infrastructure rules.
 - `packages/simulation/src/terrain.ts`: deterministic seed hashing, regions and chunk generation.
 - `packages/simulation/src/world.ts`: sparse explored chunks, finite geological deposits and world validation.
-- `apps/web/src/viewport.ts`, `WorldNavigator.tsx`: viewport culling and coordinate navigation.
+- `apps/web/src/WorldNavigator.tsx`: coordinate navigation.
 - `packages/simulation/src/colony.ts`: validated state, deployment, footprints/access, commands, simulation clock and save migration.
 - `packages/simulation/src/inventory.ts`: preserved Stage 1 pure inventory/recipe helpers.
-- `apps/web/src/actors.ts` and `ResidentsPanel.tsx`: cached people/buggy rendering and settlement controls.
-- `apps/web/src/art.ts`: cached transparent temporary building/connection sprites.
+- `apps/web/src/world3d/Units.tsx` and `ResidentsPanel.tsx`: 3D residents, vehicles, and settlement controls.
 - `apps/web/src/NetworkInspector.tsx`: actual network observations and segment controls.
-- `apps/web/src/World.tsx`: Phaser terrain, placeholder buildings, landing animation and camera; it never edits colony state.
+- `apps/web/src/world3d/World3D.tsx`: perspective camera, terrain chunks, model picking, and construction previews.
 - `apps/web/src/main.tsx`: React HUD, construction/inspection and clock adapter; every gameplay mutation calls simulation functions.
 - `apps/api`: Fastify authentication, draft/public catalogue APIs, durable uploads and committed Prisma migrations. `/api/new-game` returns schema 8; `/api/health` identifies version 0.4.1.
 

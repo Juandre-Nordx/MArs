@@ -4,6 +4,7 @@ import {
   chunkKey,
   hash,
   terrainAt,
+  WORLD_SIZE,
   type Tile,
   type WorldState,
 } from '@mars/simulation';
@@ -15,13 +16,11 @@ import {
   InstancedMesh,
   Object3D,
 } from 'three';
-import { elevation, surfaceAt } from './terrain';
+import { elevation, groundShade, surfaceAt } from './heightmap';
 
-const terrainColors = {
-  dust: [0xb46a53, 0xb76c51, 0xb16a53],
-  sand: [0xbd7757, 0xbe7658, 0xbb765a],
-  basalt: [0x965c50, 0x9a6052, 0x985f52],
-};
+const basalt = new Color(0x8d4d3f);
+const dust = new Color(0xc27d5a);
+const polarStone = new Color(0x9e9b8c);
 
 type ChunkProps = {
   seed: number;
@@ -29,6 +28,10 @@ type ChunkProps = {
   x: number;
   z: number;
   stride: number;
+  north: number;
+  east: number;
+  south: number;
+  west: number;
   explored?: number[];
   rocks: boolean;
 };
@@ -39,6 +42,10 @@ function chunkGeometry({
   x,
   z,
   stride,
+  north,
+  east,
+  south,
+  west,
   explored,
 }: Omit<ChunkProps, 'rocks'>) {
   const startX = x * CHUNK_SIZE;
@@ -46,47 +53,66 @@ function chunkGeometry({
   const positions: number[] = [];
   const colors: number[] = [];
   const visible = new Set(explored);
-  const color = new Color();
-  const polarStone = new Color(0x9e9b8c);
+  let light = 1;
   const samples = CHUNK_SIZE / stride;
   const points = Array.from({ length: samples + 1 }, (_, row) =>
     Array.from({ length: samples + 1 }, (_, column) => {
       const px = startX + column * stride - 0.5;
       const pz = startZ + row * stride - 0.5;
-      return [px, elevation(seed, px, pz, landing), pz] as const;
+      const tile = terrainAt(
+        seed,
+        Math.max(0, Math.min(WORLD_SIZE - 1, Math.round(px))),
+        Math.max(0, Math.min(WORLD_SIZE - 1, Math.round(pz))),
+      );
+      const color = basalt.clone().lerp(dust, groundShade(seed, px, pz));
+      if (tile.region === 'ice-bearing') color.lerp(polarStone, 0.25);
+      const edgeStride = Math.max(
+        stride,
+        row === 0 ? north : 0,
+        column === samples ? east : 0,
+        row === samples ? south : 0,
+        column === 0 ? west : 0,
+      );
+      // A detailed boundary follows the coarser neighbor's mesh edge.
+      const height =
+        edgeStride === stride
+          ? elevation(seed, px, pz, landing)
+          : surfaceAt(seed, px, pz, landing, edgeStride);
+      return {
+        position: [px, height, pz] as const,
+        color,
+      };
     }),
   );
-  function point(value: readonly number[]) {
-    positions.push(...value);
-    colors.push(color.r, color.g, color.b);
+  function point({ position, color }: (typeof points)[number][number]) {
+    positions.push(...position);
+    colors.push(color.r * light, color.g * light, color.b * light);
   }
   for (let row = 0; row < samples; row++)
     for (let column = 0; column < samples; column++) {
       const i = column * stride;
       const j = row * stride;
-      const tile = terrainAt(seed, startX + i, startZ + j);
-      color.setHex(terrainColors[tile.texture][tile.shade]!);
-      if (tile.region === 'ice-bearing') color.lerp(polarStone, 0.25);
-      if (!visible.has(j * CHUNK_SIZE + i)) color.multiplyScalar(0.63);
+      light = visible.has(j * CHUNK_SIZE + i) ? 1 : 0.72;
       const a = points[row]![column]!;
       const b = points[row]![column + 1]!;
       const c = points[row + 1]![column]!;
       const d = points[row + 1]![column + 1]!;
       for (const vertex of [a, c, b, b, c, d]) point(vertex);
 
-      // Vertical skirts hide gaps where adjacent chunks use different sampling rates.
-      color.multiplyScalar(0.83);
-      const skirt = (
-        p: readonly [number, number, number],
-        q: readonly [number, number, number],
-      ) => {
-        const low = ([px, py, pz]: typeof p) => [px, py - 1.8, pz];
-        for (const vertex of [p, q, low(p), low(p), q, low(q)]) point(vertex);
+      // Skirts close only the perimeter of the loaded terrain.
+      light *= 0.83;
+      const skirt = (p: typeof a, q: typeof a) => {
+        function lower(point: typeof a) {
+          const [x, y, z] = point.position;
+          return { ...point, position: [x, y - 2.4, z] as const };
+        }
+        for (const vertex of [p, q, lower(p), lower(p), q, lower(q)])
+          point(vertex);
       };
-      if (row === 0) skirt(a, b);
-      if (column === samples - 1) skirt(b, d);
-      if (row === samples - 1) skirt(d, c);
-      if (column === 0) skirt(c, a);
+      if (!north && row === 0) skirt(a, b);
+      if (!east && column === samples - 1) skirt(b, d);
+      if (!south && row === samples - 1) skirt(d, c);
+      if (!west && column === 0) skirt(c, a);
     }
   const terrain = new BufferGeometry();
   terrain.setAttribute('position', new Float32BufferAttribute(positions, 3));
@@ -96,10 +122,34 @@ function chunkGeometry({
 }
 
 const TerrainChunk = memo(function TerrainChunk(props: ChunkProps) {
-  const { seed, landing, x, z, stride, explored, rocks } = props;
+  const {
+    seed,
+    landing,
+    x,
+    z,
+    stride,
+    north,
+    east,
+    south,
+    west,
+    explored,
+    rocks,
+  } = props;
   const geometry = useMemo(
-    () => chunkGeometry({ seed, landing, x, z, stride, explored }),
-    [seed, landing, x, z, stride, explored],
+    () =>
+      chunkGeometry({
+        seed,
+        landing,
+        x,
+        z,
+        stride,
+        north,
+        east,
+        south,
+        west,
+        explored,
+      }),
+    [seed, landing, x, z, stride, north, east, south, west, explored],
   );
   useEffect(() => () => geometry.dispose(), [geometry]);
   const instances = useMemo(() => {
@@ -112,7 +162,12 @@ const TerrainChunk = memo(function TerrainChunk(props: ChunkProps) {
       const tile = terrainAt(seed, px, pz);
       if (tile.decoration !== 'rock' && tile.decoration !== 'boulder')
         return [];
-      const size = tile.decoration === 'boulder' ? 0.34 : 0.19;
+      const size =
+        tile.decoration === 'boulder'
+          ? tile.region === 'rocky-highlands'
+            ? 0.58
+            : 0.34
+          : 0.19;
       return {
         x: px,
         y: surfaceAt(seed, px, pz, landing),
@@ -170,6 +225,10 @@ export function Terrain({
   landing: Tile;
   rocks: boolean;
 }) {
+  const resolutions = useMemo(
+    () => new Map(chunks.map(({ x, z, stride }) => [chunkKey(x, z), stride])),
+    [chunks],
+  );
   return (
     <group ref={terrain}>
       {chunks.map(({ x, z, stride }) => (
@@ -178,6 +237,10 @@ export function Terrain({
           x={x}
           z={z}
           stride={stride}
+          north={resolutions.get(chunkKey(x, z - 1)) ?? 0}
+          east={resolutions.get(chunkKey(x + 1, z)) ?? 0}
+          south={resolutions.get(chunkKey(x, z + 1)) ?? 0}
+          west={resolutions.get(chunkKey(x - 1, z)) ?? 0}
           explored={world?.chunks[chunkKey(x, z)]?.explored}
           seed={seed}
           landing={landing}

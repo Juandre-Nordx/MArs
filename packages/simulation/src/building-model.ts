@@ -1,5 +1,14 @@
 import { z } from 'zod';
 
+export const buildingYaws = [0, 90, 180, 270] as const;
+export const buildingYawSchema = z.union([
+  z.literal(0),
+  z.literal(90),
+  z.literal(180),
+  z.literal(270),
+]);
+export type BuildingYaw = z.infer<typeof buildingYawSchema>;
+
 export const modelStates = [
   'working',
   'idle',

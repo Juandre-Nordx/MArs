@@ -44,7 +44,7 @@ test.describe('administration with PostgreSQL', () => {
     await db?.catalogueState.updateMany({ data: { currentVersion: null } });
     await db?.$disconnect();
   });
-  test('login, planned resources, building/recipe edits, three art slots, validation and publication', async ({
+  test('login, planned resources, building/recipe edits, icon uploads and legacy asset retention, validation and publication', async ({
     page,
   }, testInfo) => {
     const errors: string[] = [];
@@ -250,66 +250,46 @@ test.describe('administration with PostgreSQL', () => {
       .getAttribute('src'))!
       .split('/')
       .at(-1);
-    await page.getByLabel('Upload isometric sprite').setInputFiles({
-      name: 'sprite.webp',
-      mimeType: 'image/webp',
-      buffer: await sharp(png).webp().toBuffer(),
-    });
-    await expect(
-      page
-        .getByRole('group', { name: 'Isometric sprite', exact: true })
-        .getByRole('status'),
-    ).toContainText('Uploaded');
-    await expect(
-      page.getByAltText('Aligned isometric preview'),
-    ).toHaveAttribute('src', /\/api\/admin\/assets\//);
-    await page.getByLabel('Sprite scale', { exact: true }).fill('0.9');
-    await page
-      .getByAltText('Aligned isometric preview')
-      .scrollIntoViewIfNeeded();
-    await page.screenshot({ path: 'test-results/admin-dashboard.png' });
     await page.getByRole('button', { name: 'Save draft', exact: true }).click();
     await expect(
       page.getByRole('status').filter({ hasText: 'Draft saved' }),
     ).toBeVisible();
     await page.getByLabel('Search catalogue').fill('survey-station');
     await page.locator('tbody tr').first().getByRole('button').click();
-    const industrySprite = page.getByRole('group', {
-      name: 'Isometric sprite',
+    const industryIcon = page.getByRole('group', {
+      name: 'Building icon',
       exact: true,
     });
-    const industryInput = industrySprite.getByLabel('Upload isometric sprite');
-    const industryPreview = industrySprite.getByAltText(
-      'Isometric sprite preview',
-    );
-    const initialSprite = await industryPreview.getAttribute('src');
+    const industryInput = industryIcon.getByLabel('Upload building icon');
+    const industryPreview = industryIcon.getByAltText('Building icon preview');
+    const initialIcon = await industryPreview.getAttribute('src');
     await industryInput.setInputFiles({
       name: 'broken.webp',
       mimeType: 'image/webp',
       buffer: Buffer.from('bad'),
     });
-    await expect(industrySprite.getByRole('alert')).toContainText(
+    await expect(industryIcon.getByRole('alert')).toContainText(
       'Unsupported format',
     );
-    await expect(industryPreview).toHaveAttribute('src', initialSprite!);
+    await expect(industryPreview).toHaveAttribute('src', initialIcon!);
     await expect(industryInput).toHaveAccessibleDescription(
-      /Processed PNG limit 8 MiB/,
+      /Processed PNG limit 2 MiB/,
     );
     await industryInput.setInputFiles(file);
-    await expect(industrySprite.getByRole('status')).toContainText('1280×1280');
+    await expect(industryIcon.getByRole('status')).toContainText('512×512');
     await expect
       .poll(() =>
         industryPreview.evaluate(
           (image: HTMLImageElement) => image.naturalWidth,
         ),
       )
-      .toBe(1280);
+      .toBe(512);
     const industryReference = (await industryPreview.getAttribute('src'))!
       .split('/')
       .at(-1);
-    await industrySprite.scrollIntoViewIfNeeded();
+    await industryIcon.scrollIntoViewIfNeeded();
     await page.screenshot({
-      path: testInfo.outputPath('industry-sprite-success.png'),
+      path: testInfo.outputPath('industry-icon-success.png'),
     });
     await page.getByRole('button', { name: 'Save draft', exact: true }).click();
     await expect(
@@ -319,44 +299,6 @@ test.describe('administration with PostgreSQL', () => {
     await page.locator('tbody tr').first().getByRole('button').click();
     await page.getByLabel('Footprint width', { exact: true }).fill('4');
     await page.getByLabel('Footprint height', { exact: true }).fill('3');
-    const batteryArt = await sharp(
-      Buffer.from(
-        '<svg xmlns="http://www.w3.org/2000/svg" width="224" height="169" viewBox="0 0 224 169">' +
-          '<path fill="#414c54" d="M0 65L96 8l128 76-96 57z"/>' +
-          '<path fill="#364853" d="M0 65l128 76v28L0 93z"/>' +
-          '<path fill="#58717a" d="M128 141l96-57v28l-96 57z"/>' +
-          '<path fill="#76ccb5" d="m15 78 40 24v9L15 87zm55 33 40 24v9l-40-24z"/>' +
-          '</svg>',
-      ),
-    )
-      .png()
-      .toBuffer();
-    await page.getByLabel('Upload isometric sprite').setInputFiles({
-      name: 'battery.png',
-      mimeType: 'image/png',
-      buffer: batteryArt,
-    });
-    await expect(
-      page
-        .getByRole('group', { name: 'Isometric sprite', exact: true })
-        .getByRole('status'),
-    ).toContainText('Uploaded');
-    const alignment = page.getByLabel('Sprite alignment', { exact: true });
-    const anchorDot = page.locator('.admin-sprite-preview circle');
-    await expect(alignment).toHaveValue('footprint-front');
-    await alignment.selectOption('tile-center');
-    await expect(anchorDot).toHaveAttribute('cy', '0');
-    await alignment.selectOption('footprint-front');
-    await expect(anchorDot).toHaveAttribute('cx', '32');
-    await expect(anchorDot).toHaveAttribute('cy', '114');
-    await page.getByLabel('Anchor X', { exact: true }).fill(String(128 / 224));
-    await expect(page.locator('.admin-sprite-preview polygon')).toHaveCount(12);
-    await page
-      .getByAltText('Aligned isometric preview')
-      .scrollIntoViewIfNeeded();
-    await page.screenshot({
-      path: testInfo.outputPath('battery-alignment-preview.png'),
-    });
     await page.getByRole('button', { name: 'Save draft', exact: true }).click();
     await expect(
       page.getByRole('status').filter({ hasText: 'Draft saved' }),
@@ -386,8 +328,18 @@ test.describe('administration with PostgreSQL', () => {
       .getByRole('button', { name: 'Drafts & Publishing', exact: true })
       .click();
     // Recreate the invalid draft produced by the previous editor.
-    await page.evaluate(async () => {
+    const legacySprite = await page.evaluate(async (data) => {
       const session = await (await fetch('/api/admin/session')).json();
+      const asset = await fetch('/api/admin/assets', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': session.csrfToken,
+        },
+        body: JSON.stringify({ slot: 'building-sprite', data }),
+      });
+      if (!asset.ok) throw new Error(await asset.text());
+      const { id } = await asset.json();
       const { draft } = await (await fetch('/api/admin/catalogue')).json();
       let revision = draft.revision;
       const changes = [
@@ -396,6 +348,7 @@ test.describe('administration with PostgreSQL', () => {
             (entry: { id: string }) => entry.id === 'housing',
           ),
           width: 2,
+          sprite: id,
         },
         {
           ...draft.document.buildings.find(
@@ -421,7 +374,8 @@ test.describe('administration with PostgreSQL', () => {
         if (!saved.ok) throw new Error(await saved.text());
         revision = (await saved.json()).revision;
       }
-    });
+      return id;
+    }, png.toString('base64'));
     await page
       .getByRole('button', { name: 'Validate and preview changes' })
       .click();
@@ -471,7 +425,6 @@ test.describe('administration with PostgreSQL', () => {
     expect(publishedBattery).toMatchObject({
       width: 4,
       height: 3,
-      spriteAlignment: 'footprint-front',
     });
     expect(
       snapshot.document.resources.find(
@@ -489,37 +442,27 @@ test.describe('administration with PostgreSQL', () => {
     expect(housing).toMatchObject({
       width: 1,
       height: 1,
-      scale: 0.9,
       icon: buildingIcon,
+      sprite: legacySprite,
     });
     expect(
       snapshot.document.buildings.find(
         (b: { id: string }) => b.id === 'survey-station',
-      ).sprite,
+      ).icon,
     ).toBe(industryReference);
-    const publishedSprite = await page.request.get(
-      `/api/catalogue-assets/${industryReference}`,
-    );
-    expect(publishedSprite.ok()).toBe(true);
-    expect((await publishedSprite.body()).length).toBeGreaterThan(
-      2 * 1024 * 1024,
-    );
     expect(
-      (await page.request.get(`/api/catalogue-assets/${housing.sprite}`)).ok(),
+      (await page.request.get(`/api/catalogue-assets/${legacySprite}`)).ok(),
     ).toBe(true);
     await page.goto('/');
     await page.locator('.catalogue-options summary').click();
     await page.getByLabel('New colony catalogue').selectOption(snapshot.id);
-    const loadedBatterySprite = page.waitForResponse(
-      (res) =>
-        res
-          .url()
-          .endsWith(`/api/catalogue-assets/${publishedBattery.sprite}`) &&
-        res.ok(),
-    );
+    const legacySpriteRequests: string[] = [];
+    page.on('request', (request) => {
+      if (request.url().endsWith(`/api/catalogue-assets/${legacySprite}`))
+        legacySpriteRequests.push(request.url());
+    });
     await page.getByRole('button', { name: 'New game', exact: true }).click();
     await page.getByRole('button', { name: 'Skip landing' }).click();
-    await loadedBatterySprite;
     await expect(page.locator('canvas')).toBeVisible();
     await page.getByRole('button', { name: 'Pause', exact: true }).click();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -527,6 +470,7 @@ test.describe('administration with PostgreSQL', () => {
       JSON.parse(localStorage.getItem('mars-first-colony-save')!),
     );
     expect(saved.catalogue.id).toBe(snapshot.id);
+    expect(legacySpriteRequests).toEqual([]);
     await page.getByRole('button', { name: 'Load', exact: true }).click();
     await expect(page.getByRole('status')).toContainText('Browser save loaded');
     const battery = saved.buildings.find(
@@ -720,11 +664,10 @@ test.describe('administration with PostgreSQL', () => {
     expect(await published.body()).toEqual(bytes);
 
     await page.goto('/');
-    await page.getByRole('button', { name: 'Load', exact: true }).click();
     const modelRequest = page.waitForResponse(
       (response) => response.url().endsWith(assetUrl) && response.ok(),
     );
-    await page.getByLabel('Map view', { exact: true }).selectOption('3d');
+    await page.getByRole('button', { name: 'Load', exact: true }).click();
     await modelRequest;
     const world = page.getByLabel('Interactive 3D colony map');
     await expect(world).toHaveAttribute('data-terrain-chunks', '49');
@@ -754,12 +697,11 @@ test.describe('administration with PostgreSQL', () => {
         json: { error: 'Model storage unavailable' },
       }),
     );
-    await page.getByRole('button', { name: 'Load', exact: true }).click();
     const missing = page.waitForResponse(
       (response) =>
         response.url().endsWith(assetUrl) && response.status() === 404,
     );
-    await page.getByLabel('Map view', { exact: true }).selectOption('3d');
+    await page.getByRole('button', { name: 'Load', exact: true }).click();
     await missing;
     await expect(world).toHaveAttribute('data-terrain-chunks', '49');
   });

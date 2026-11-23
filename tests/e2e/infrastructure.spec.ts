@@ -9,7 +9,7 @@ import {
   port,
   deployColony,
 } from '../../packages/simulation/src/index.js';
-import { tileToWorld } from '../../apps/web/src/iso.js';
+import { screenPoint } from '../helpers/perspective.js';
 test.beforeEach(async ({ page }) => {
   await useLegacyNewGames(page);
 });
@@ -18,17 +18,6 @@ async function start(page: Page) {
   await page.getByRole('button', { name: 'New game', exact: true }).click();
   await page.getByRole('button', { name: 'Skip landing' }).click();
   await page.getByRole('button', { name: 'Pause', exact: true }).click();
-}
-async function point(page: Page, x: number, y: number) {
-  const box = await page.locator('canvas').boundingBox();
-  if (!box) throw new Error('Missing canvas');
-  const zone = findLandingZone(1),
-    center = tileToWorld(zone.x, zone.y),
-    p = tileToWorld(x, y);
-  return {
-    x: box.x + box.width / 2 + p.x - center.x,
-    y: box.y + box.height / 2 + p.y - center.y,
-  };
 }
 async function selectType(page: Page, name: string) {
   await page
@@ -41,8 +30,8 @@ async function drag(
   from: { x: number; y: number },
   to: { x: number; y: number },
 ) {
-  const a = await point(page, from.x, from.y),
-    b = await point(page, to.x, to.y);
+  const a = await screenPoint(page, from),
+    b = await screenPoint(page, to);
   await page.mouse.move(a.x, a.y);
   await page.mouse.down();
   await page.mouse.move(b.x, b.y, { steps: 10 });
@@ -200,7 +189,7 @@ test('invalid building overlap is red and right click cancels without spending',
   await expect(
     page.getByRole('button', { name: 'Confirm route' }),
   ).toBeDisabled();
-  const p = await point(page, zone.x, zone.y);
+  const p = await screenPoint(page, zone);
   await page.mouse.click(p.x, p.y, { button: 'right' });
   await expect(page.getByTestId('route-preview')).toHaveCount(0);
   expect((await saved(page)).inventory.metal).toBe(160);

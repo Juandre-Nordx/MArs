@@ -14,6 +14,10 @@ import {
   buildingAt,
   catalogueSnapshotSchema,
   type BuildingModel,
+  type BuildingType,
+  type BuildingYaw,
+  type ColonyState,
+  type InfrastructureType,
   CHUNK_SIZE,
   footprint,
   routeBetween,
@@ -23,7 +27,6 @@ import {
   type Tile,
 } from '@mars/simulation';
 import { Group, MOUSE, Raycaster, Vector2, Vector3, Object3D } from 'three';
-import type { WorldProps } from '../World';
 import { BuildingRenderer, ProceduralBuilding, TileMarker } from './Buildings';
 import { Infrastructure } from './Infrastructure';
 import { infrastructureLinks } from './infrastructure';
@@ -36,7 +39,29 @@ const cameraOffset = new Vector3(11, 14, 15);
 const vertical = new Vector3(0, 1, 0);
 const clamp = (value: number, max: number) => Math.max(0, Math.min(max, value));
 
-type Props = WorldProps & { low: boolean; onFallback: () => void };
+export type WorldProps = {
+  colony: ColonyState | null;
+  mission: number;
+  focus: Tile | null;
+  selected: Tile | null;
+  hovered: Tile | null;
+  construction: BuildingType | null;
+  modelYaw: BuildingYaw;
+  view: InfrastructureType | 'normal' | 'geology';
+  infrastructureTool: { type: InfrastructureType; demolish: boolean } | null;
+  draft: Tile[];
+  routeValid: boolean;
+  buildingPreviewValid: boolean;
+  onRoute: (tiles: Tile[]) => void;
+  onCancel: () => void;
+  selectedResidentId: string | null;
+  onResidentSelect: (id: string) => void;
+  onSelect: (tile: Tile) => void;
+  onHover: (tile: Tile | null) => void;
+  onTouchdown: () => void;
+};
+type WorldViewProps = WorldProps & { low: boolean };
+type Props = WorldViewProps & { onContextLost: () => void };
 
 function Descent({
   landing,
@@ -106,13 +131,14 @@ function Scene(
     [chunkX, chunkZ, radius],
   );
   const keys = useRef(new Set<string>());
-  const pointer = useRef({ active: false, edgeX: 0, edgeY: 0 });
+  const pointerInside = useRef(false);
+  const refreshHover = useRef<(() => void) | null>(null);
+  const velocity = useRef(new Vector3());
   const lightTarget = useMemo(() => new Object3D(), []);
   const offset = useRef(new Vector3());
   const heading = useRef(new Vector3());
   const motion = useRef(new Vector3());
   const controlsDirty = useRef(true);
-  const lastTile = useRef<Tile | null>(null);
   const diagnosticsAt = useRef(0);
   const definitions = runtimeCatalogue(colony ?? undefined).buildings;
   const knownBuildings = useRef<{
@@ -166,7 +192,7 @@ function Scene(
     controlsDirty.current = true;
     setWindowCenter(site);
     setFocusTarget(null);
-    lastTile.current = null;
+    velocity.current.set(0, 0, 0);
   }, [camera, mission, seed, landing.x, landing.y]);
 
   useEffect(() => {
@@ -183,6 +209,12 @@ function Scene(
       target?: { resident?: string; tile?: Tile };
     } | null = null;
     let route: Tile[] | null = null;
+    let cursor: PointerEvent | null = null;
+    let rightPress: { x: number; y: number } | null = null;
+    let rotated = false;
+    refreshHover.current = () => {
+      if (cursor && latest.current.construction) hover(project(cursor).tile);
+    };
     function project(event: PointerEvent, pick = false) {
       const bounds = element.getBoundingClientRect();
       ndc.set(
@@ -217,17 +249,21 @@ function Scene(
       };
     }
     function enter() {
-      pointer.current.active = true;
+      pointerInside.current = true;
     }
     function hover(tile: Tile | null) {
-      if (lastTile.current?.x === tile?.x && lastTile.current?.y === tile?.y)
-        return;
-      lastTile.current = tile;
-      latest.current.onHover(tile);
+      const { hovered, onHover } = latest.current;
+      if (hovered?.x !== tile?.x || hovered?.y !== tile?.y) onHover(tile);
     }
     function down(event: PointerEvent) {
-      if (event.button !== 0 || !event.isPrimary) return;
+      if (!event.isPrimary) return;
+      cursor = event;
       setFocusTarget(null);
+      if (event.button === 2) {
+        rightPress = { x: event.clientX, y: event.clientY };
+        rotated = false;
+      }
+      if (event.button !== 0) return;
       const state = latest.current;
       const result = project(
         event,
@@ -240,11 +276,13 @@ function Scene(
       }
     }
     function move(event: PointerEvent) {
-      const bounds = element.getBoundingClientRect();
-      const edge = (distance: number, length: number) =>
-        distance < 18 ? -1 : distance > length - 18 ? 1 : 0;
-      pointer.current.edgeX = edge(event.clientX - bounds.left, bounds.width);
-      pointer.current.edgeY = edge(event.clientY - bounds.top, bounds.height);
+      cursor = event;
+      if (
+        rightPress &&
+        Math.hypot(event.clientX - rightPress.x, event.clientY - rightPress.y) >
+          5
+      )
+        rotated = true;
       const state = latest.current;
       if (!state.construction && !state.infrastructureTool) return;
       const { tile } = project(event);
@@ -268,6 +306,19 @@ function Scene(
       state.onRoute(route);
     }
     function up(event: PointerEvent) {
+      if (event.button === 2) {
+        const state = latest.current;
+        if (
+          rightPress &&
+          !rotated &&
+          (state.construction || state.infrastructureTool)
+        ) {
+          route = null;
+          hover(null);
+          state.onCancel();
+        }
+        rightPress = null;
+      }
       if (event.button !== 0 || !event.isPrimary || !start) return;
       const press = start;
       start = null;
@@ -293,7 +344,9 @@ function Scene(
       if (tile) state.onSelect(tile);
     }
     function leave() {
-      pointer.current = { active: false, edgeX: 0, edgeY: 0 };
+      pointerInside.current = false;
+      cursor = null;
+      rightPress = null;
       hover(null);
       start = null;
       route = null;
@@ -301,12 +354,6 @@ function Scene(
     }
     function contextMenu(event: MouseEvent) {
       event.preventDefault();
-      const state = latest.current;
-      if (state.construction || state.infrastructureTool) {
-        route = null;
-        hover(null);
-        state.onCancel();
-      }
     }
     function keyboard(event: KeyboardEvent) {
       const key = event.key.toLowerCase();
@@ -314,7 +361,7 @@ function Scene(
         keys.current.delete(key);
         return;
       }
-      if (!pointer.current.active && document.activeElement !== element) return;
+      if (!pointerInside.current && document.activeElement !== element) return;
       if (
         event.metaKey ||
         event.ctrlKey ||
@@ -333,7 +380,7 @@ function Scene(
     }
     function contextLost(event: Event) {
       event.preventDefault();
-      latest.current.onFallback();
+      latest.current.onContextLost();
     }
     element.addEventListener('pointerenter', enter);
     element.addEventListener('pointerdown', down);
@@ -347,6 +394,7 @@ function Scene(
     window.addEventListener('keyup', keyboard);
     window.addEventListener('blur', blur);
     return () => {
+      refreshHover.current = null;
       element.removeEventListener('pointerenter', enter);
       element.removeEventListener('pointerdown', down);
       element.removeEventListener('pointermove', move);
@@ -372,7 +420,7 @@ function Scene(
       const amount =
         Math.hypot(focusTarget.x - target.x, focusTarget.y - target.z) > 45
           ? 1
-          : 1 - Math.exp(-step * 8);
+          : 1 - Math.exp(-Math.min(delta, 0.2) * 8);
       target.x += (focusTarget.x - target.x) * amount;
       target.z += (focusTarget.y - target.z) * amount;
       if (
@@ -384,14 +432,9 @@ function Scene(
       }
     }
     const pressed = keys.current;
-    const edge =
-      !construction && !props.infrastructureTool && !focusTarget
-        ? pointer.current
-        : undefined;
-    const horizontal =
-      Number(pressed.has('d')) - Number(pressed.has('a')) + (edge?.edgeX ?? 0);
-    const forward =
-      Number(pressed.has('w')) - Number(pressed.has('s')) - (edge?.edgeY ?? 0);
+    const horizontal = Number(pressed.has('d')) - Number(pressed.has('a'));
+    const forward = Number(pressed.has('w')) - Number(pressed.has('s'));
+    motion.current.set(0, 0, 0);
     if (horizontal || forward) {
       heading.current.subVectors(target, camera.position).setY(0).normalize();
       motion.current
@@ -399,10 +442,12 @@ function Scene(
         .multiplyScalar(horizontal)
         .addScaledVector(heading.current, forward)
         .normalize()
-        .multiplyScalar(step * 10);
-      target.x += motion.current.x;
-      target.z += motion.current.z;
+        .multiplyScalar(10);
     }
+    if (focusTarget) velocity.current.set(0, 0, 0);
+    else velocity.current.lerp(motion.current, 1 - Math.exp(-step * 14));
+    if (velocity.current.lengthSq() > 0.0001)
+      target.addScaledVector(velocity.current, step);
     target.x = clamp(target.x, WORLD_SIZE - 1);
     target.z = clamp(target.z, WORLD_SIZE - 1);
     const elevation = surfaceAt(seed, target.x, target.z, landing);
@@ -418,15 +463,39 @@ function Scene(
           .applyAxisAngle(vertical, yaw * step * 1.4)
           .add(target),
       );
-    const floor = surfaceAt(
+    const cameraChunk = chunks.find(
+      ({ x, z }) =>
+        Math.floor((camera.position.x + 0.5) / CHUNK_SIZE) === x &&
+        Math.floor((camera.position.z + 0.5) / CHUNK_SIZE) === z,
+    );
+    const groundHeight = surfaceAt(
       seed,
       camera.position.x,
       camera.position.z,
       landing,
     );
-    camera.position.y = Math.max(camera.position.y, floor + 0.55);
-    if (horizontal || forward || yaw || oldX !== target.x || oldZ !== target.z)
-      control.update();
+    const floor =
+      cameraChunk && cameraChunk.stride > 1
+        ? Math.max(
+            groundHeight,
+            surfaceAt(
+              seed,
+              camera.position.x,
+              camera.position.z,
+              landing,
+              cameraChunk.stride,
+            ),
+          )
+        : groundHeight;
+    const belowTerrain = camera.position.y < floor + 0.55;
+    if (belowTerrain) camera.position.y = floor + 0.55;
+    const moved =
+      oldX !== target.x || oldZ !== target.z || yaw !== 0 || belowTerrain;
+    if (moved) {
+      camera.lookAt(target);
+      camera.updateMatrixWorld();
+    }
+    if (moved || controlsDirty.current) refreshHover.current?.();
     const nextChunkX = Math.floor(target.x / CHUNK_SIZE);
     const nextChunkZ = Math.floor(target.z / CHUNK_SIZE);
     if (nextChunkX !== chunkX || nextChunkZ !== chunkZ) {
@@ -443,12 +512,33 @@ function Scene(
       canvas.dataset.cameraPosition = camera.position.toArray().join(',');
       canvas.dataset.cameraTarget = target.toArray().join(',');
       canvas.dataset.terrainChunks = String(chunks.length);
+      canvas.dataset.terrainSeed = String(seed);
+      canvas.dataset.landingTile = [landing.x, landing.y].join(',');
+      canvas.dataset.cameraClearance = String(camera.position.y - floor);
+      canvas.dataset.visibleBuildings = String(
+        buildings.current?.children.length ?? 0,
+      );
+      canvas.dataset.exploredTiles = String(
+        chunks.reduce(
+          (count, { x, z }) =>
+            count +
+            (colony?.world.chunks[tileKey({ x, y: z })]?.explored.length ?? 0),
+          0,
+        ),
+      );
+      canvas.dataset.infrastructureLinks = String(links.length);
       canvas.dataset.triangles = String(gl.info.render.triangles);
       canvas.dataset.drawCalls = String(gl.info.render.calls);
       canvas.dataset.geometries = String(gl.info.memory.geometries);
     }
   });
 
+  function modelFor(type: BuildingType) {
+    return props.models === null
+      ? colony?.catalogue.document.buildings.find((entry) => entry.id === type)
+          ?.model
+      : props.models.get(type);
+  }
   const footColor =
     !construction || props.buildingPreviewValid ? '#65e4ab' : '#ff5c4d';
   const type = construction && hovered ? definitions[construction] : null;
@@ -506,13 +596,8 @@ function Scene(
               status={building.status}
               health={building.health}
               speed={colony.speed}
-              configuredModel={
-                props.models === null
-                  ? colony.catalogue.document.buildings.find(
-                      (entry) => entry.id === building.type,
-                    )?.model
-                  : props.models.get(building.type)
-              }
+              configuredModel={modelFor(building.type)}
+              modelYaw={building.modelYaw}
               operating={building.status === 'running' && colony.speed > 0}
               animate={!knownBuildings.current.ids.has(building.id)}
             />
@@ -566,6 +651,8 @@ function Scene(
           seed={seed}
           landing={landing}
           tint={footColor}
+          configuredModel={modelFor(construction)}
+          modelYaw={props.modelYaw}
         />
       )}
       {colony?.phase === 'landing' && (
@@ -589,9 +676,9 @@ function Scene(
           LEFT:
             construction || props.infrastructureTool ? undefined : MOUSE.PAN,
           MIDDLE: MOUSE.PAN,
-          RIGHT:
-            construction || props.infrastructureTool ? undefined : MOUSE.ROTATE,
+          RIGHT: MOUSE.ROTATE,
         }}
+        onStart={() => setFocusTarget(null)}
         onChange={() => {
           controlsDirty.current = true;
         }}
@@ -651,27 +738,44 @@ function usePublishedModels() {
   return models;
 }
 
-export default function World3D(props: Props) {
+export default function World3D(props: WorldViewProps) {
   const models = usePublishedModels();
+  const [unavailable, setUnavailable] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const contextLost = useCallback(() => setUnavailable(true), []);
   return (
     <div className="world" aria-label="3D Mars terrain">
-      <RendererBoundary onFallback={props.onFallback}>
-        <Canvas
-          shadows={!props.low}
-          dpr={props.low ? 1 : [1, 1.5]}
-          camera={{ fov: 45, near: 0.12, far: 110 }}
-          gl={{ antialias: !props.low, powerPreference: 'high-performance' }}
-          onCreated={({ gl }) => {
-            gl.domElement.tabIndex = 0;
-            gl.domElement.setAttribute(
-              'aria-label',
-              'Interactive 3D colony map',
-            );
-          }}
-        >
-          <Scene {...props} models={models} />
-        </Canvas>
-      </RendererBoundary>
+      {unavailable ? (
+        <div className="map-loading" role="alert">
+          <p>The 3D map needs a working WebGL 2 context.</p>
+          <button
+            onClick={() => {
+              setAttempt((value) => value + 1);
+              setUnavailable(false);
+            }}
+          >
+            Retry 3D map
+          </button>
+        </div>
+      ) : (
+        <RendererBoundary key={attempt} onFallback={contextLost}>
+          <Canvas
+            shadows={!props.low}
+            dpr={props.low ? 1 : [1, 1.5]}
+            camera={{ fov: 45, near: 0.12, far: 110 }}
+            gl={{ antialias: !props.low, powerPreference: 'high-performance' }}
+            onCreated={({ gl }) => {
+              gl.domElement.tabIndex = 0;
+              gl.domElement.setAttribute(
+                'aria-label',
+                'Interactive 3D colony map',
+              );
+            }}
+          >
+            <Scene {...props} models={models} onContextLost={contextLost} />
+          </Canvas>
+        </RendererBoundary>
+      )}
     </div>
   );
 }

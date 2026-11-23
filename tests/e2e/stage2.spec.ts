@@ -1,7 +1,7 @@
 import { useLegacyNewGames } from '../helpers/legacyBrowser.js';
 import { legacyLandingZone as findLandingZone } from '../helpers/landing.js';
 import { expect, test, type Page } from '@playwright/test';
-import { tileToWorld } from '../../apps/web/src/iso.js';
+import { clickTile, screenPoint } from '../helpers/perspective.js';
 test.beforeEach(async ({ page }) => {
   await useLegacyNewGames(page);
 });
@@ -23,18 +23,6 @@ async function pause(page: Page) {
     page.getByRole('button', { name: 'Pause', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true');
 }
-async function clickTile(page: Page, x: number, y: number) {
-  const canvas = page.locator('canvas');
-  const box = await canvas.boundingBox();
-  if (!box) throw new Error('No canvas');
-  const zone = findLandingZone(1);
-  const center = tileToWorld(zone.x, zone.y);
-  const point = tileToWorld(x, y);
-  await page.mouse.click(
-    box.x + box.width / 2 + point.x - center.x,
-    box.y + box.height / 2 + point.y - center.y,
-  );
-}
 test('automatic landing, inspection, pause/speed, save/load and restart are functional', async ({
   page,
 }) => {
@@ -51,7 +39,7 @@ test('automatic landing, inspection, pause/speed, save/load and restart are func
   await expect(page.getByTestId('resource-oxygen')).not.toHaveText(oxygen);
   await pause(page);
   const zone = findLandingZone(1);
-  await clickTile(page, zone.x, zone.y);
+  await clickTile(page, zone, 0.6);
   await expect(
     page
       .getByTestId('building-inspector')
@@ -111,18 +99,17 @@ test('construction preview rejects collision and places a paid housing unit', as
   await pause(page);
   await page.getByRole('button', { name: 'Housing', exact: true }).click();
   await page.getByRole('button', { name: /^Modular housing/ }).click();
-  const canvas = page.locator('canvas');
-  const box = await canvas.boundingBox();
-  if (!box) throw new Error('Missing canvas');
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const zone = findLandingZone(1);
+  const occupied = await screenPoint(page, zone);
+  await page.mouse.move(occupied.x, occupied.y);
   await expect(page.getByTestId('placement-status')).toContainText(
     'Building footprint is occupied',
   );
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.click(occupied.x, occupied.y);
   await expect(
     page.getByText('Building roster (19)', { exact: true }),
   ).toBeVisible();
-  await clickTile(page, 2, 9);
+  await clickTile(page, { x: 2, y: 9 });
   await expect(
     page.getByText('Building roster (20)', { exact: true }),
   ).toBeVisible();

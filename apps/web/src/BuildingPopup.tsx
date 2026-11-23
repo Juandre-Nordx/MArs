@@ -43,11 +43,13 @@ export function BuildingPopup({
   colony,
   building,
   onClose,
+  onFocus,
   onCommand,
 }: {
   colony: ColonyState;
   building: Building;
   onClose: () => void;
+  onFocus: () => void;
   onCommand: (update: (s: ColonyState) => ColonyState) => void;
 }) {
   const resourceDefinitions = catalogueResources(colony.catalogue);
@@ -94,6 +96,9 @@ export function BuildingPopup({
           ×
         </button>
       </header>
+      <button className="building-focus" onClick={onFocus}>
+        Focus building
+      </button>
       <div className="building-popup-overview">
         {entry.icon.startsWith('placeholder:') ? (
           <svg
