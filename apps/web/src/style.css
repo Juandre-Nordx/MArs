@@ -870,3 +870,28 @@ summary {
 .production-panel [role='alert'] {
   color: var(--critical);
 }
+
+.map-renderer-controls {
+  position: absolute;
+  z-index: 2;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.map-renderer-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 8px;
+  border-radius: 6px;
+  background: #171d25ee;
+  font-size: 11px;
+}
+.map-loading {
+  margin: 0;
+  padding: 3rem 1rem;
+  text-align: center;
+}

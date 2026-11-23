@@ -44,11 +44,12 @@ import {
   WORLD_SIZE,
 } from './iso';
 import { spritePlacement } from './sprite-placement';
-type Props = {
+export type WorldProps = {
   colony: ColonyState | null;
   mission: number;
   focus: Tile | null;
   selected: Tile | null;
+  hovered: Tile | null;
   construction: BuildingType | null;
   view: InfrastructureType | 'normal' | 'geology';
   infrastructureTool: { type: InfrastructureType; demolish: boolean } | null;
@@ -71,7 +72,7 @@ function diamond(x: number, y: number) {
     { x: x - HALF_TILE_WIDTH, y },
   ];
 }
-export function World(props: Props) {
+export function World(props: WorldProps) {
   const host = useRef<HTMLDivElement>(null);
   const latest = useRef(props);
   latest.current = props;
@@ -423,7 +424,7 @@ export function World(props: Props) {
       }
       private drawInfrastructure(
         colony: ColonyState,
-        view: Props['view'],
+        view: WorldProps['view'],
         selected: Tile | null,
       ) {
         for (const image of this.infrastructureImages) image.destroy();
