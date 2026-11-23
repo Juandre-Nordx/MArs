@@ -18,6 +18,7 @@ export type AssetLocation = {
   storageBackend: string;
   storageKey: string | null;
   byteSize: number | null;
+  mime?: string;
 };
 
 export class AssetStorageError extends Error {
@@ -37,7 +38,11 @@ type AssetPayload = Pick<
 };
 
 export interface AssetStorage {
-  store(id: string, bytes: Buffer<ArrayBuffer>): Promise<AssetPayload>;
+  store(
+    id: string,
+    bytes: Buffer<ArrayBuffer>,
+    mime?: string,
+  ): Promise<AssetPayload>;
   read(asset: AssetLocation, data: Uint8Array | null): Promise<Buffer>;
   verify(asset: AssetLocation): Promise<void>;
 }
@@ -64,9 +69,9 @@ async function syncDirectory(path: string) {
 const isMissing = (error: unknown) =>
   (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
 
-function volumeKey(id: string) {
+function volumeKey(id: string, mime = 'image/png') {
   if (!uuid.test(id)) throw unavailable();
-  return `${id}.png`;
+  return `${id}.${mime === 'model/gltf-binary' ? 'glb' : 'png'}`;
 }
 
 function under(path: string, root: string) {
@@ -115,7 +120,11 @@ export function createAssetStorage(env: NodeJS.ProcessEnv): AssetStorage {
 
   async function readVolume(asset: AssetLocation) {
     const { id, byteSize, storageKey } = asset;
-    if (storageKey !== volumeKey(id) || !byteSize || byteSize > maxAssetBytes)
+    if (
+      storageKey !== volumeKey(id, asset.mime) ||
+      !byteSize ||
+      byteSize > maxAssetBytes
+    )
       throw unavailable();
     let dir: string;
     try {
@@ -155,7 +164,7 @@ export function createAssetStorage(env: NodeJS.ProcessEnv): AssetStorage {
   }
 
   return {
-    async store(id, bytes) {
+    async store(id, bytes, mime) {
       if (driver === 'database')
         return {
           storageBackend: 'database',
@@ -169,7 +178,7 @@ export function createAssetStorage(env: NodeJS.ProcessEnv): AssetStorage {
           'Unknown artwork storage driver. Set ASSET_STORAGE_DRIVER to database or volume.',
         );
       try {
-        const storageKey = volumeKey(id);
+        const storageKey = volumeKey(id, mime);
         const dir = await directory(true);
         const temporary = join(dir, `.${randomUUID()}.part`);
         const file = await open(temporary, 'wx', 0o640);

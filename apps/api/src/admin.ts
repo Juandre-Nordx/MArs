@@ -4,6 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 import { z, ZodError } from 'zod';
 import { randomUUID } from 'node:crypto';
 import {
+  maxAssetBytes,
   assetDigest,
   AssetStorageError,
   type AssetStorage,
@@ -26,6 +27,7 @@ import {
   publishDraft,
   draftErrors,
   draftDiff,
+  readModelMetadata,
 } from './admin-store.js';
 import {
   hashToken,
@@ -34,6 +36,12 @@ import {
   verifyPassword,
   safeEqual,
 } from './admin-security.js';
+import {
+  modelMime,
+  modelSlot,
+  oversizedModel,
+  prepareModel,
+} from './model-upload.js';
 export type AdminOptions = {
   db: () => PrismaClient;
   configured: boolean;
@@ -117,6 +125,53 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
     }
     return session;
   }
+  async function saveAsset(
+    req: FastifyRequest,
+    actorId: string,
+    slot: string,
+    mime: string,
+    bytes: Buffer<ArrayBuffer>,
+    width = 0,
+    height = 0,
+  ) {
+    const id = randomUUID();
+    const payload = await options.assetStorage.store(id, bytes, mime);
+    try {
+      await options.db().$transaction(async (tx) => {
+        await tx.catalogueAsset.create({
+          data: {
+            id,
+            slot,
+            mime,
+            width,
+            height,
+            digest: assetDigest(bytes),
+            ...payload,
+          },
+        });
+        await tx.adminAudit.create({
+          data: {
+            actorId,
+            action: slot === modelSlot ? 'model.upload' : 'asset.upload',
+            detail: { id, slot, width, height },
+          },
+        });
+      });
+    } catch {
+      // A connection failure may leave the commit outcome unknown. Retain the
+      // file so a committed record can never reference bytes we removed.
+      req.log.warn({
+        event: 'asset_upload_metadata_failed',
+        assetId: id,
+        storageBackend: payload.storageBackend,
+      });
+      throw new AdminError(
+        503,
+        'Artwork upload could not confirm its database record. Retry the upload when the database is available.',
+      );
+    }
+    return id;
+  }
   // All admin errors are bounded and sanitised; database details and credential values never leave the server.
   await app.register(async (routes) => {
     routes.setErrorHandler((error, request, reply) => {
@@ -133,7 +188,9 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
             error.statusCode === 413
               ? request.routeOptions.url === '/api/admin/assets'
                 ? oversizedInput(options.artworkLimits).message
-                : 'Upload too large'
+                : request.routeOptions.url === '/api/admin/models'
+                  ? oversizedModel().message
+                  : 'Upload too large'
               : 'Invalid request',
         });
       return reply.code(503).send({
@@ -292,6 +349,7 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
         body.kind,
         body.entry,
         body.create,
+        options.assetStorage,
       );
     });
     routes.post('/api/admin/restore-building-layouts', async (req) => {
@@ -357,45 +415,43 @@ export async function adminRoutes(app: FastifyInstance, options: AdminOptions) {
           options.artworkLimits,
         );
 
-        const id = randomUUID();
-        const payload = await options.assetStorage.store(id, bytes);
-        try {
-          await options.db().$transaction(async (tx) => {
-            await tx.catalogueAsset.create({
-              data: {
-                id,
-                slot: body.slot,
-                mime: 'image/png',
-                width,
-                height,
-                digest: assetDigest(bytes),
-                ...payload,
-              },
-            });
-            await tx.adminAudit.create({
-              data: {
-                actorId: s.userId,
-                action: 'asset.upload',
-                detail: { id, slot: body.slot, width, height },
-              },
-            });
-          });
-        } catch {
-          // A connection failure may leave the commit outcome unknown. Retain the
-          // file so a committed record can never reference bytes we removed.
-          req.log.warn({
-            event: 'asset_upload_metadata_failed',
-            assetId: id,
-            storageBackend: payload.storageBackend,
-          });
-          throw new AdminError(
-            503,
-            'Artwork upload could not confirm its database record. Retry the upload when the database is available.',
-          );
-        }
+        const id = await saveAsset(
+          req,
+          s.userId,
+          body.slot,
+          'image/png',
+          bytes,
+          width,
+          height,
+        );
         return { id, slot: body.slot, width, height };
       },
     );
+    routes.post(
+      '/api/admin/models',
+      { bodyLimit: 4 * Math.ceil(maxAssetBytes / 3) + 2048 },
+      async (req) => {
+        const session = await authorise(req, true);
+        const { data } = z
+          .object({ data: z.string() })
+          .strict()
+          .parse(req.body);
+        const { bytes, metadata } = await prepareModel(data);
+        const id = await saveAsset(
+          req,
+          session.userId,
+          modelSlot,
+          modelMime,
+          bytes,
+        );
+        return { id, metadata };
+      },
+    );
+    routes.get('/api/admin/models/:id', async (req) => {
+      await authorise(req);
+      const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+      return readModelMetadata(options.db(), id, options.assetStorage);
+    });
     routes.get('/api/admin/assets/:id', async (req, reply) => {
       await authorise(req);
       const id = z

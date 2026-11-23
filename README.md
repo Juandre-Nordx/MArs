@@ -22,6 +22,8 @@ Resource and building icons, including those in **Industry Buildings**, resize t
 
 For split Railway deployments, mount the artwork volume on `@mars/api` at `/data/uploads`. Set `ASSET_STORAGE_DRIVER=volume` and `ASSET_STORAGE_PATH=/data/uploads` there. New artwork files go in `/data/uploads/catalogue-assets/`. The web service proxies `/api/*` to the API. Back up PostgreSQL and the artwork volume together. [Railway setup and recovery](docs/RAILWAY.md#railway-split-services-and-artwork-volume)
 
+Existing building editors also accept GLB models for **3D preview**, with ground alignment, per-state animations, and the existing draft and publish workflow. [Building model controls and export limits](docs/BUILDING-MODELS.md)
+
 ## Independent drone jobs
 
 V0.3.3.1 keeps one drone assigned to each survey job or mine. Overlapping survey areas wait for their current owner to finish, even when they come from different stations or use different scan modes. Other charged drones skip those waiting areas and take independent compatible queues. After finishing, a drone can take another reachable job directly when its battery has enough return reserve.

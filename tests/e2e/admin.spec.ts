@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import sharp from 'sharp';
 import { detailedTransparentPng } from '../helpers/artwork.js';
+import { waterTankGlb } from '../helpers/model.js';
 import { databaseClient } from '../../apps/api/src/database.js';
 import {
   hashPassword,
@@ -554,6 +555,215 @@ test.describe('administration with PostgreSQL', () => {
     await expect(icon).toHaveAttribute('title', /placeholder shown/);
     expect(errors).toEqual([]);
   });
+  test('edits, previews and publishes a 3D water tank model for an existing colony', async ({
+    page,
+  }, info) => {
+    test.setTimeout(120_000);
+    await page.goto('/');
+    await page.getByRole('button', { name: 'New game', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Skip landing', exact: true })
+      .click();
+    await page.getByRole('button', { name: 'Pause', exact: true }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const readSave = () =>
+      page.evaluate(() =>
+        JSON.parse(localStorage.getItem('mars-first-colony-save')!),
+      );
+    const original = await readSave();
+
+    await page.goto('/admin');
+    await page.getByLabel('Email', { exact: true }).fill(email);
+    await page.getByLabel('Password', { exact: true }).fill(password);
+    const adminData = page.waitForResponse(
+      (response) =>
+        response.url().endsWith('/api/admin/catalogue') && response.ok(),
+    );
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    if (!(await (await adminData).json()).draft) {
+      await page
+        .getByRole('button', { name: 'Initialise draft from game' })
+        .click();
+      await expect(page.getByRole('status')).toContainText(
+        'Initial draft seeded',
+      );
+    }
+    await page
+      .getByRole('button', { name: 'Industry Buildings', exact: true })
+      .click();
+    await page.getByLabel('Search catalogue').fill('water storage tank');
+    await page
+      .getByRole('button', { name: 'Water storage tank', exact: true })
+      .click();
+    await page.getByText('3D Model and Animations', { exact: true }).click();
+    const input = page.getByLabel('Upload GLB model', { exact: true });
+    await input.setInputFiles({
+      name: 'tank.glb',
+      mimeType: 'model/gltf-binary',
+      buffer: Buffer.from('wrong format'),
+    });
+    await expect(
+      page
+        .getByRole('group', { name: '3D Model', exact: true })
+        .getByRole('alert'),
+    ).toContainText('binary glTF');
+    const modelUpload = page.waitForResponse(
+      (response) =>
+        response.url().endsWith('/api/admin/models') && response.ok(),
+    );
+    const bytes = waterTankGlb();
+    await input.setInputFiles({
+      name: 'tank.glb',
+      mimeType: 'model/gltf-binary',
+      buffer: bytes,
+    });
+    const uploaded = await (await modelUpload).json();
+    const assetUrl = `/api/catalogue-assets/${uploaded.id}`;
+    expect((await page.request.get(assetUrl)).status()).toBe(404);
+    const dimensions = page.getByLabel('Model dimensions');
+    await expect(dimensions).toContainText('0.86 × 1.02 × 0.86');
+    await page.getByLabel('Model scale', { exact: true }).fill('1.25');
+    await page.getByLabel('Position Y', { exact: true }).fill('0.12');
+    await page.getByLabel('Rotation Y (degrees)', { exact: true }).fill('90');
+    await expect(dimensions).toContainText(/1\.08 × 1\.2[78] × 1\.08/);
+
+    const preview = page.getByLabel('Interactive building model preview', {
+      exact: true,
+    });
+    await preview.scrollIntoViewIfNeeded();
+    const bounds = await preview.boundingBox();
+    if (!bounds) throw new Error('Missing model preview canvas');
+    const still = await preview.screenshot();
+    await page.mouse.move(
+      bounds.x + bounds.width / 2,
+      bounds.y + bounds.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      bounds.x + bounds.width / 2 + 60,
+      bounds.y + bounds.height / 2 + 24,
+      { steps: 4 },
+    );
+    await page.mouse.up();
+    await expect
+      .poll(async () => (await preview.screenshot()).equals(still))
+      .toBe(false);
+
+    const animations = page.getByRole('group', {
+      name: 'Animations',
+      exact: true,
+    });
+    await animations.getByLabel('Animation method').selectOption('clip');
+    await expect(animations.getByLabel('Animation clip')).toHaveValue('0');
+    await animations.getByLabel('Playback speed').fill('1.5');
+    await animations.getByLabel('Loop animation').uncheck();
+    const clipRest = await preview.screenshot();
+    await animations.getByRole('button', { name: 'Play', exact: true }).click();
+    await expect
+      .poll(async () => (await preview.screenshot()).equals(clipRest))
+      .toBe(false);
+    await animations
+      .getByRole('button', { name: 'Pause', exact: true })
+      .click();
+    await animations
+      .getByRole('button', { name: 'Reset', exact: true })
+      .click();
+    await animations.getByLabel('Simulated state').selectOption('idle');
+    await animations.getByLabel('Animation method').selectOption('builtin');
+    await animations
+      .getByLabel('Motion', { exact: true })
+      .selectOption('vertical');
+    await animations
+      .getByLabel('Model part')
+      .selectOption({ label: 'Pump Rotor (2)' });
+    await animations.getByLabel('Travel distance').fill('0.35');
+    const resetPose = await preview.screenshot();
+    await animations.getByRole('button', { name: 'Play', exact: true }).click();
+    await expect
+      .poll(async () => (await preview.screenshot()).equals(resetPose))
+      .toBe(false);
+    await animations
+      .getByRole('button', { name: 'Pause', exact: true })
+      .click();
+    await animations
+      .getByRole('button', { name: 'Reset', exact: true })
+      .click();
+    await page
+      .getByRole('button', { name: 'Frame model', exact: true })
+      .click();
+    await preview.screenshot();
+    await page
+      .getByRole('group', { name: '3D Model', exact: true })
+      .screenshot({
+        path: info.outputPath('water-tank-model-preview.png'),
+      });
+
+    const save = page.getByRole('button', {
+      name: 'Save Model Settings',
+      exact: true,
+    });
+    await save.click();
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Draft saved' }),
+    ).toBeVisible();
+    expect((await page.request.get(assetUrl)).status()).toBe(404);
+    await expect(page.getByLabel('Model scale', { exact: true })).toHaveValue(
+      '1.25',
+    );
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.getByRole('button', { name: 'Publish', exact: true }).click();
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Catalogue published' }),
+    ).toBeVisible();
+    const published = await page.request.get(assetUrl);
+    expect(published.headers()['content-type']).toBe('model/gltf-binary');
+    expect(await published.body()).toEqual(bytes);
+
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Load', exact: true }).click();
+    const modelRequest = page.waitForResponse(
+      (response) => response.url().endsWith(assetUrl) && response.ok(),
+    );
+    await page.getByLabel('Map view', { exact: true }).selectOption('3d');
+    await modelRequest;
+    const world = page.getByLabel('Interactive 3D colony map');
+    await expect(world).toHaveAttribute('data-terrain-chunks', '49');
+    const tank = original.buildings.find(
+      (building: { type: string }) => building.type === 'water-tank',
+    );
+    await page.getByLabel('Map X', { exact: true }).fill(String(tank.x));
+    await page.getByLabel('Map Y', { exact: true }).fill(String(tank.y));
+    await page.getByRole('button', { name: 'Go to tile' }).click();
+    await expect(
+      page.getByRole('dialog', { name: 'Water storage tank' }),
+    ).toBeVisible();
+    await page.keyboard.press('Escape');
+    await world.screenshot({
+      path: info.outputPath('water-tank-in-colony.png'),
+    });
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const reloaded = await readSave();
+    expect(reloaded.catalogue.id).toBe(original.catalogue.id);
+    expect(reloaded.buildings).toEqual(original.buildings);
+    expect(reloaded.inventory).toEqual(original.inventory);
+
+    await page.reload();
+    await page.route(`**${assetUrl}`, (route) =>
+      route.fulfill({
+        status: 404,
+        json: { error: 'Model storage unavailable' },
+      }),
+    );
+    await page.getByRole('button', { name: 'Load', exact: true }).click();
+    const missing = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(assetUrl) && response.status() === 404,
+    );
+    await page.getByLabel('Map view', { exact: true }).selectOption('3d');
+    await missing;
+    await expect(world).toHaveAttribute('data-terrain-chunks', '49');
+  });
+
   test('ordinary player cannot use admin endpoints or dashboard', async ({
     page,
     context,
