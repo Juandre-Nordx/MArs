@@ -12,6 +12,8 @@ import { OrbitControls } from '@react-three/drei';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import {
   buildingAt,
+  catalogueSnapshotSchema,
+  type BuildingModel,
   CHUNK_SIZE,
   footprint,
   routeBetween,
@@ -62,7 +64,9 @@ function Descent({
   );
 }
 
-function Scene(props: Props) {
+function Scene(
+  props: Props & { models: ReadonlyMap<string, BuildingModel> | null },
+) {
   const {
     colony,
     low,
@@ -127,6 +131,10 @@ function Scene(props: Props) {
       ids: new Set(colony?.buildings.map((building) => building.id)),
     };
   }
+  useEffect(() => {
+    for (const building of colony?.buildings ?? [])
+      if (visible(building)) knownBuildings.current.ids.add(building.id);
+  }, [colony?.buildings, visible, mission]);
   const selectedBuilding =
     colony && selected ? buildingAt(colony, selected) : undefined;
   const footprintTiles = !colony
@@ -496,6 +504,15 @@ function Scene(props: Props) {
               seed={seed}
               landing={landing}
               status={building.status}
+              health={building.health}
+              speed={colony.speed}
+              configuredModel={
+                props.models === null
+                  ? colony.catalogue.document.buildings.find(
+                      (entry) => entry.id === building.type,
+                    )?.model
+                  : props.models.get(building.type)
+              }
               operating={building.status === 'running' && colony.speed > 0}
               animate={!knownBuildings.current.ids.has(building.id)}
             />
@@ -599,7 +616,43 @@ class RendererBoundary extends Component<
   }
 }
 
+function usePublishedModels() {
+  const [models, setModels] = useState<ReadonlyMap<
+    string,
+    BuildingModel
+  > | null>(null);
+  useEffect(() => {
+    let pending: AbortController | undefined;
+    function refresh() {
+      pending?.abort();
+      const { signal } = (pending = new AbortController());
+      void fetch('/api/catalogues/current', { cache: 'no-store', signal })
+        .then(async (response) => {
+          if (!response.ok) return;
+          const snapshot = catalogueSnapshotSchema.parse(await response.json());
+          if (!signal.aborted)
+            setModels(
+              new Map(
+                snapshot.document.buildings.flatMap((entry) =>
+                  entry.model ? [[entry.id, entry.model] as const] : [],
+                ),
+              ),
+            );
+        })
+        .catch(() => {});
+    }
+    refresh();
+    window.addEventListener('focus', refresh);
+    return () => {
+      pending?.abort();
+      window.removeEventListener('focus', refresh);
+    };
+  }, []);
+  return models;
+}
+
 export default function World3D(props: Props) {
+  const models = usePublishedModels();
   return (
     <div className="world" aria-label="3D Mars terrain">
       <RendererBoundary onFallback={props.onFallback}>
@@ -616,7 +669,7 @@ export default function World3D(props: Props) {
             );
           }}
         >
-          <Scene {...props} />
+          <Scene {...props} models={models} />
         </Canvas>
       </RendererBoundary>
     </div>

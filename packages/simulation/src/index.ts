@@ -10,3 +10,4 @@ export * from './industry.js';
 export * from './storage.js';
 export * from './production.js';
 export * from './catalogue.js';
+export * from './building-model.js';

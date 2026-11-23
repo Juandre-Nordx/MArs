@@ -1,12 +1,4 @@
-import {
-  cloneElement,
-  isValidElement,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-  type ReactElement,
-} from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   builtinCatalogue,
   buildingLayoutRules,
@@ -18,6 +10,8 @@ import {
 } from '@mars/simulation';
 import { CatalogueArt } from './catalogue-art';
 import { SpritePreview } from './SpritePreview';
+import { BuildingModelEditor, type ModelUpload } from './BuildingModelEditor';
+import { Field, Num } from './admin-fields';
 import './admin.css';
 type Kind = 'resources' | 'buildings' | 'recipes';
 type Entry = ResourceEntry | BuildingEntry | RecipeEntry;
@@ -61,6 +55,14 @@ function displayBytes(bytes: number) {
   if (bytes % 1024 === 0) return `${bytes / 1024} KiB`;
   return `${bytes.toLocaleString()} bytes`;
 }
+async function encodedFile(file: File, signal: AbortSignal) {
+  const buffer = new Uint8Array(await file.arrayBuffer());
+  signal.throwIfAborted();
+  let binary = '';
+  for (let offset = 0; offset < buffer.length; offset += 8192)
+    binary += String.fromCharCode(...buffer.subarray(offset, offset + 8192));
+  return btoa(binary);
+}
 const pages = [
   'Overview',
   'Minerals & Resources',
@@ -69,18 +71,6 @@ const pages = [
   'Audit History',
   'Admin Account',
 ];
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="admin-field">
-      <span>{label}</span>
-      {isValidElement(children)
-        ? cloneElement(children as ReactElement<{ 'aria-label'?: string }>, {
-            'aria-label': label,
-          })
-        : children}
-    </label>
-  );
-}
 function Text({
   label,
   value,
@@ -98,38 +88,6 @@ function Text({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-      />
-    </Field>
-  );
-}
-function Num({
-  label,
-  value,
-  onChange,
-  min = 0,
-  max = 1000000,
-  step = 'any',
-  disabled = false,
-}: {
-  label: string;
-  value: number;
-  onChange: (n: number) => void;
-  min?: number;
-  max?: number;
-  step?: string;
-  disabled?: boolean;
-}) {
-  return (
-    <Field label={label}>
-      <input
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        disabled={disabled}
-        required
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
       />
     </Field>
   );
@@ -234,7 +192,7 @@ export default function AdminApp() {
     [message, setMessage] = useState(''),
     [error, setError] = useState(''),
     [working, setBusy] = useState(false),
-    [uploading, setUploading] = useState<ArtworkField | null>(null),
+    [uploading, setUploading] = useState<ArtworkField | 'model' | null>(null),
     [artworkFeedback, setArtworkFeedback] = useState<
       Partial<Record<ArtworkField, ArtworkFeedback>>
     >({}),
@@ -432,13 +390,7 @@ export default function AdminApp() {
           `File too large. The input limit is ${displayBytes(inputBytes)}.`,
         );
 
-      const buffer = new Uint8Array(await file.arrayBuffer());
-      controller.signal.throwIfAborted();
-      let binary = '';
-      for (let offset = 0; offset < buffer.length; offset += 8192)
-        binary += String.fromCharCode(
-          ...buffer.subarray(offset, offset + 8192),
-        );
+      const payload = await encodedFile(file, controller.signal);
       const { signal } = controller;
       const previous = artworkFeedback[field];
       const activeSession =
@@ -447,7 +399,7 @@ export default function AdminApp() {
           : session;
       const result = await request<ArtworkUpload>(
         'assets',
-        { slot, data: btoa(binary) },
+        { slot, data: payload },
         { signal, csrfToken: activeSession?.csrfToken },
       );
       if (uploadRequest.current !== controller || signal.aborted) return;
@@ -485,6 +437,42 @@ export default function AdminApp() {
         setUploading(null);
       }
     }
+  }
+  async function uploadModel(file: File) {
+    if (!entry || !('sprite' in entry) || busy || uploadRequest.current)
+      throw new Error('Finish the current request before uploading a model.');
+    const controller = new AbortController();
+    uploadRequest.current = controller;
+    setUploading('model');
+    const { signal } = controller;
+    try {
+      const data = await encodedFile(file, signal);
+      const result = await request<ModelUpload>('models', { data }, { signal });
+      signal.throwIfAborted();
+      return result;
+    } catch (error) {
+      if (
+        error instanceof AdminRequestError &&
+        (error.status === 401 || error.status === 403)
+      )
+        throw new Error(
+          'Your administrator session needs to be renewed. Sign in again before uploading.',
+        );
+      throw error;
+    } finally {
+      if (uploadRequest.current === controller) {
+        uploadRequest.current = null;
+        setUploading(null);
+      }
+    }
+  }
+
+  async function publish(revision: number) {
+    await request('publish', { revision });
+    await refresh();
+    setMessage(
+      'Catalogue published atomically. Existing colonies receive its latest 3D models when their visuals refresh.',
+    );
   }
   function asset(
     label: string,
@@ -943,6 +931,23 @@ export default function AdminApp() {
               </fieldset>
             </div>
           </>
+        )}
+        {'sprite' in entry && (
+          <BuildingModelEditor
+            key={entry.id}
+            entry={entry}
+            busy={busy}
+            uploading={uploading === 'model'}
+            canSave={dirty || creating}
+            canPublish={!dirty && !creating}
+            onUpload={uploadModel}
+            onChange={(model) => change({ model })}
+            onPublish={() => {
+              if (busy || dirty || !data.draft) return;
+              if (window.confirm('Publish the entire saved catalogue draft?'))
+                void action(() => publish(data.draft!.revision));
+            }}
+          />
         )}
         {'producerId' in entry && (
           <>
@@ -1410,11 +1415,7 @@ export default function AdminApp() {
               disabled={busy || validated !== draft.revision}
               onClick={() =>
                 void action(async () => {
-                  await request('publish', { revision: draft.revision });
-                  await refresh();
-                  setMessage(
-                    'Catalogue published atomically. New colonies can select this version.',
-                  );
+                  await publish(draft.revision);
                 })
               }
             >

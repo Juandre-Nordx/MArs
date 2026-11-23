@@ -1,8 +1,13 @@
-import { Component, Suspense, useMemo, useRef, type ReactNode } from 'react';
-import { Clone, useGLTF } from '@react-three/drei';
+import { useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Group } from 'three';
-import { type BuildingType, type Tile } from '@mars/simulation';
+import {
+  type BuildingModel,
+  type BuildingType,
+  type ModelState,
+  type Tile,
+} from '@mars/simulation';
+import { UploadedModel } from './UploadedModel';
 import { foundationRange, surfaceAt } from './terrain';
 
 type Point = [number, number, number];
@@ -20,10 +25,6 @@ const turquoise = '#427f83';
 const copper = '#d48644';
 const steel = '#767b73';
 const glass = '#204653';
-
-const artwork: Partial<
-  Record<BuildingType, { url?: string; scale?: number; rotation?: number }>
-> = {};
 
 function Material({ color, opacity }: Material) {
   return (
@@ -368,42 +369,6 @@ export function ProceduralBuilding({
   }
 }
 
-function GltfModel({ url }: { url: string }) {
-  const { scene } = useGLTF(url);
-  return <Clone object={scene} castShadow receiveShadow />;
-}
-
-class ModelFallback extends Component<
-  { children: ReactNode; fallback: ReactNode },
-  { failed: boolean }
-> {
-  state = { failed: false };
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-  render() {
-    return this.state.failed ? this.props.fallback : this.props.children;
-  }
-}
-
-export function BuildingModel(props: ModelProps) {
-  const model = artwork[props.type];
-  const fallback = <ProceduralBuilding {...props} />;
-  return (
-    <group scale={model?.scale ?? 1} rotation={[0, model?.rotation ?? 0, 0]}>
-      {model?.url && !props.tint ? (
-        <ModelFallback key={model.url} fallback={fallback}>
-          <Suspense fallback={fallback}>
-            <GltfModel url={model.url} />
-          </Suspense>
-        </ModelFallback>
-      ) : (
-        fallback
-      )}
-    </group>
-  );
-}
-
 export function BuildingRenderer({
   type,
   width,
@@ -415,23 +380,52 @@ export function BuildingRenderer({
   operating,
   tint,
   animate = false,
+  configuredModel,
+  health = 100,
+  speed = 0,
 }: ModelProps & {
   tile: Tile;
   seed: number;
   landing: Tile;
   status?: string;
   animate?: boolean;
+  configuredModel?: BuildingModel;
+  health?: number;
+  speed?: number;
 }) {
   const { low, high } = useMemo(
     () => foundationRange(seed, landing, tile, width, depth),
     [seed, landing, tile.x, tile.y, width, depth],
   );
   const model = useRef<Group>(null);
-  const progress = useRef(animate ? 0 : 1);
+  const entrance = useRef(animate);
+  const progress = useRef(entrance.current ? 0 : 1);
+  const [constructing, setConstructing] = useState(animate);
+  const visualState: ModelState = constructing
+    ? 'construction'
+    : health < 100
+      ? 'damaged'
+      : status === 'running'
+        ? 'working'
+        : 'idle';
+  const fallback = (
+    <ProceduralBuilding
+      type={type}
+      width={width}
+      depth={depth}
+      tint={tint}
+      operating={operating}
+    />
+  );
   useFrame((_, delta) => {
     if (!model.current || progress.current >= 1) return;
-    progress.current = Math.min(1, progress.current + delta * 2);
+    progress.current = Math.min(
+      1,
+      progress.current +
+        delta * (configuredModel?.animations.construction ? 0.5 : 2),
+    );
     model.current.scale.y = 1 - (1 - progress.current) ** 3;
+    if (progress.current === 1) setConstructing(false);
   });
   const top = high + 0.1;
   const x = tile.x + (width - 1) / 2;
@@ -449,14 +443,17 @@ export function BuildingRenderer({
         color={tint ?? '#5f5045'}
         opacity={tint ? 0.47 : 1}
       />
-      <group ref={model} scale={[1, animate ? 0.03 : 1, 1]}>
-        <BuildingModel
-          type={type}
-          width={width}
-          depth={depth}
-          tint={tint}
-          operating={operating}
-        />
+      <group ref={model} scale={[1, entrance.current ? 0.03 : 1, 1]}>
+        {configuredModel && !tint ? (
+          <UploadedModel
+            model={configuredModel}
+            state={visualState}
+            playing={constructing || speed > 0}
+            fallback={fallback}
+          />
+        ) : (
+          fallback
+        )}
       </group>
       {!tint && status && (
         <mesh

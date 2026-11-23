@@ -6,26 +6,51 @@ import {
   resourceEntrySchema,
   buildingEntrySchema,
   buildingLayoutRules,
+  modelAnimationErrors,
+  type BuildingModel,
   recipeEntrySchema,
   type CatalogueDocument,
 } from '@mars/simulation';
 import { createHash } from 'node:crypto';
 import type { AssetStorage } from './asset-storage.js';
-export class AdminError extends Error {
-  constructor(
-    public statusCode: number,
-    message: string,
-  ) {
-    super(message);
-  }
+import { AdminError } from './admin-error.js';
+import { modelMetadata, modelMime, modelSlot } from './model-upload.js';
+export { AdminError } from './admin-error.js';
+
+export async function readModelMetadata(
+  db: Pick<Prisma.TransactionClient, 'catalogueAsset'>,
+  id: string,
+  storage: AssetStorage,
+) {
+  const asset = await db.catalogueAsset.findUnique({ where: { id } });
+  if (!asset || asset.slot !== modelSlot || asset.mime !== modelMime)
+    throw new AdminError(422, 'Missing or incompatible building GLB.');
+  return modelMetadata(await storage.read(asset, asset.data));
 }
+
+async function checkedModel(
+  db: Pick<Prisma.TransactionClient, 'catalogueAsset'>,
+  model: BuildingModel,
+  storage: AssetStorage,
+) {
+  const errors = modelAnimationErrors(
+    model,
+    await readModelMetadata(db, model.asset, storage),
+  );
+  if (errors.length) throw new AdminError(422, errors.join(' '));
+}
+
 const json = (value: unknown) =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const assetIds = (doc: CatalogueDocument) => [
   ...new Set(
     [
       ...doc.resources.map((r) => r.icon),
-      ...doc.buildings.flatMap((b) => [b.icon, b.sprite]),
+      ...doc.buildings.flatMap((b) => [
+        b.icon,
+        b.sprite,
+        ...(b.model ? [b.model.asset] : []),
+      ]),
     ].filter((id) => !id.startsWith('placeholder:')),
   ),
 ];
@@ -102,6 +127,7 @@ export async function updateDraft(
   kind: 'resources' | 'buildings' | 'recipes',
   entry: unknown,
   create: boolean,
+  storage: AssetStorage,
 ) {
   const schema = {
     resources: resourceEntrySchema,
@@ -131,6 +157,8 @@ export async function updateDraft(
           : doc[kind].map((e, i) => (i === index ? next : e)),
     };
     const parsed = catalogueDocumentSchema.parse(merged);
+    if (kind === 'buildings' && 'model' in value && value.model)
+      await checkedModel(tx, value.model, storage);
     const resources = new Set(parsed.resources.map((r) => r.id)),
       buildings = new Set(parsed.buildings.map((b) => b.id));
     for (const r of parsed.recipes)
@@ -235,6 +263,7 @@ export async function draftErrors(
     ...doc.buildings.flatMap((b) => [
       { ref: b.icon, slot: 'building-icon' },
       { ref: b.sprite, slot: 'building-sprite' },
+      ...(b.model ? [{ ref: b.model.asset, slot: modelSlot }] : []),
     ]),
   ];
   const assets = await db.catalogueAsset.findMany({
@@ -252,6 +281,7 @@ export async function draftErrors(
     select: {
       id: true,
       slot: true,
+      mime: true,
       digest: true,
       storageBackend: true,
       storageKey: true,
@@ -274,7 +304,18 @@ export async function draftErrors(
       errors.push(`Missing or incompatible ${r.slot}: ${r.ref}`);
   }
   if (storage) {
+    for (const building of doc.buildings) {
+      if (!building.model) continue;
+      try {
+        await checkedModel(db, building.model, storage);
+      } catch (error) {
+        errors.push(
+          `Building ${building.id}: ${error instanceof AdminError ? error.message : 'Model storage unavailable.'}`,
+        );
+      }
+    }
     for (const asset of assets) {
+      if (asset.slot === modelSlot) continue;
       try {
         await storage.verify(asset);
       } catch {

@@ -5,6 +5,7 @@ import { mkdtemp, readdir, readFile, rm, unlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import sharp from 'sharp';
 import { detailedTransparentPng } from '../helpers/artwork.js';
+import { waterTankGlb } from '../helpers/model.js';
 import { createApp } from '../../apps/api/src/app.js';
 import { databaseClient } from '../../apps/api/src/database.js';
 import {
@@ -13,7 +14,11 @@ import {
   randomToken,
   verifyPassword,
 } from '../../apps/api/src/admin-security.js';
-import { builtinCatalogue, type CatalogueDocument } from '@mars/simulation';
+import {
+  builtinCatalogue,
+  defaultBuildingModel,
+  type CatalogueDocument,
+} from '@mars/simulation';
 const url = process.env.MARS_TEST_DATABASE_URL;
 const origin = 'http://127.0.0.1:5173';
 it('hashes administrator passwords with independent salts and verifies safely', async () => {
@@ -134,6 +139,7 @@ describe.skipIf(!url)('admin against isolated PostgreSQL', () => {
       ['GET', 'catalogue'],
       ['GET', 'audit'],
       ['GET', `assets/${randomUUID()}`],
+      ['GET', `models/${randomUUID()}`],
       ['POST', 'logout'],
       ['POST', 'password'],
       ['POST', 'seed'],
@@ -142,6 +148,7 @@ describe.skipIf(!url)('admin against isolated PostgreSQL', () => {
       ['POST', 'publish'],
       ['POST', 'restore-building-layouts'],
       ['POST', 'assets'],
+      ['POST', 'models'],
     ] as const) {
       for (const [cookie, status] of [
         ['', 401],
@@ -928,6 +935,153 @@ describe.skipIf(!url)('admin against isolated PostgreSQL', () => {
       auth,
     );
   });
+  it('keeps GLBs private until publication and validates clip and named-part assignments before saving', async () => {
+    const auth = await login();
+    const volume = await mkdtemp(join(resolve('..'), 'mars-model-'));
+    const config = {
+      databaseUrl: url,
+      logger: false as const,
+      env: { ASSET_STORAGE_DRIVER: 'volume', ASSET_STORAGE_PATH: volume },
+      admin: { origin, now: () => time },
+    };
+    let server = createApp(undefined, config);
+    const send = (path: string, payload: unknown, headers = auth) =>
+      server.inject({
+        method: 'POST',
+        url: `/api/admin/${path}`,
+        headers,
+        payload,
+      });
+    const bytes = waterTankGlb();
+    const payload = { data: bytes.toString('base64') };
+    const previous = await catalogue(auth);
+    const entry = previous.draft.document.buildings.find(
+      (building) => building.id === 'water-tank',
+    )!;
+    let revision = previous.draft.revision;
+    const save = async (model: unknown) => {
+      const result = await send('entries', {
+        revision,
+        create: false,
+        kind: 'buildings',
+        entry: { ...entry, model },
+      });
+      if (result.statusCode === 200) revision = result.json().revision;
+      return result;
+    };
+    const publish = async () => {
+      const result = await send('publish', { revision });
+      expect(result.statusCode, result.body).toBe(200);
+      revision++;
+      return result.json().id;
+    };
+    try {
+      expect(
+        (await send('models', payload, { ...auth, 'x-csrf-token': 'wrong' }))
+          .statusCode,
+      ).toBe(403);
+      const upload = await send('models', payload);
+      expect(upload.statusCode, upload.body).toBe(200);
+      const id: string = upload.json().id;
+      const publicUrl = `/api/catalogue-assets/${id}`;
+      expect((await server.inject(publicUrl)).statusCode).toBe(404);
+      expect((await server.inject(`/api/admin/models/${id}`)).statusCode).toBe(
+        401,
+      );
+      const metadata = await server.inject({
+        url: `/api/admin/models/${id}`,
+        headers: auth,
+      });
+      expect(metadata.json()).toEqual(upload.json().metadata);
+      const draftAsset = await server.inject({
+        url: `/api/admin/assets/${id}`,
+        headers: auth,
+      });
+      expect(draftAsset.rawPayload).toEqual(bytes);
+      expect(draftAsset.headers['content-type']).toBe('model/gltf-binary');
+      expect(
+        await readFile(join(volume, 'catalogue-assets', `${id}.glb`)),
+      ).toEqual(bytes);
+
+      const model = {
+        ...defaultBuildingModel(id),
+        scale: 1.25,
+        rotation: [0, 90, 0],
+        animations: {
+          working: { method: 'clip', clip: 0, speed: 1.5, loop: false },
+          idle: {
+            method: 'builtin',
+            effect: 'rotate',
+            part: 1,
+            axis: 'y',
+            direction: 1,
+            distance: 0.2,
+            speed: 0.5,
+            loop: true,
+          },
+        },
+      };
+      const invalidClip = await save({
+        ...model,
+        animations: { working: { ...model.animations.working, clip: 7 } },
+      });
+      expect(invalidClip.statusCode, invalidClip.body).toBe(422);
+      expect(invalidClip.json().error).toContain('clip missing');
+      const invalidPart = await save({
+        ...model,
+        animations: { idle: { ...model.animations.idle, part: 8 } },
+      });
+      expect(invalidPart.statusCode, invalidPart.body).toBe(422);
+      expect(invalidPart.json().error).toContain('part missing');
+      const saved = await save(model);
+      expect(saved.statusCode, saved.body).toBe(200);
+      expect((await server.inject(publicUrl)).statusCode).toBe(404);
+      const first = await publish();
+      await server.close();
+      server = createApp(undefined, config);
+      const published = await server.inject(publicUrl);
+      expect(published.rawPayload).toEqual(bytes);
+      expect(published.headers).toMatchObject({
+        'content-type': 'model/gltf-binary',
+        'cache-control': 'public,max-age=31536000,immutable',
+      });
+
+      const replacement = await send('models', payload);
+      expect(replacement.statusCode, replacement.body).toBe(200);
+      expect(replacement.json().id).not.toBe(id);
+      const updated = await save({
+        ...model,
+        asset: replacement.json().id,
+        scale: 0.9,
+      });
+      expect(updated.statusCode, updated.body).toBe(200);
+      await publish();
+      const old = (
+        await server.inject(`/api/catalogues/published-${first}`)
+      ).json();
+      expect(
+        old.document.buildings.find(
+          (building: { id: string }) => building.id === 'water-tank',
+        ).model,
+      ).toEqual(model);
+      expect((await server.inject(publicUrl)).rawPayload).toEqual(bytes);
+
+      const reset = await save(undefined);
+      expect(reset.statusCode, reset.body).toBe(200);
+      await publish();
+      const current = (await server.inject('/api/catalogues/current')).json();
+      expect(
+        current.document.buildings.find(
+          (building: { id: string }) => building.id === 'water-tank',
+        ).model,
+      ).toBeUndefined();
+      expect((await server.inject(publicUrl)).rawPayload).toEqual(bytes);
+    } finally {
+      await server.close();
+      await rm(volume, { recursive: true, force: true });
+    }
+  });
+
   it('audits edits/publications and revokes every session on password change', async () => {
     const auth = await login(),
       other = await login();

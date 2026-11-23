@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { buildingModelSchema } from './building-model.js';
 import {
   buildingDefinitions,
   buildingTypeSchema,
@@ -65,6 +66,7 @@ export const buildingEntrySchema = z
     ...common,
     category: z.string().min(1).max(60),
     sprite: assetRefSchema,
+    model: buildingModelSchema.optional(),
     spriteAlignment: z.enum(['tile-center', 'footprint-front']).optional(),
     scale: z.number().min(0.1).max(4),
     anchor: z

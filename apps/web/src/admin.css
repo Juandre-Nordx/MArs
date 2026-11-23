@@ -272,3 +272,32 @@
   gap: 6px;
   margin-right: 16px;
 }
+
+.admin-building-model > summary {
+  cursor: pointer;
+  padding: 12px 0;
+  color: #a8e0cf;
+}
+.admin-building-model > fieldset {
+  margin-top: 14px;
+}
+.admin-model-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 10px;
+}
+.admin-model-canvas {
+  height: 310px;
+  border: 1px solid #38505a;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.admin-model-canvas > p {
+  margin: 16px;
+}
+@media (max-width: 1050px) {
+  .admin-model-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
